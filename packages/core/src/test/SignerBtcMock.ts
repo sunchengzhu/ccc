@@ -59,12 +59,12 @@ export class SignerBtcMock extends SignerBtc {
     return tx;
   }
 
-  // 没什么用 但是不这个方法加编译会报错
+  // 没什么用 但是不加这个方法编译会报错
   async connect(): Promise<void> {
     console.log("Connected to Bitcoin service");
   }
 
-  // 没什么用 但是不这个方法加编译会报错
+  // 没什么用 但是不加这个方法编译会报错
   async isConnected(): Promise<boolean> {
     return true;
   }
