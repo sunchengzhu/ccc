@@ -8,6 +8,7 @@ killoffckb() {
   done
 }
 
+npm install -g @offckb/cli
 killoffckb
 offckb clean
 
