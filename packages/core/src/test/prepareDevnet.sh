@@ -8,7 +8,13 @@ killoffckb() {
   done
 }
 
-npm install -g @offckb/cli
+if offckb --version 2>&1 | grep -q "command not found"; then
+  echo "offckb not found, installing..."
+  npm install -g @offckb/cli
+else
+  echo "offckb is installed"
+fi
+
 killoffckb
 offckb clean
 
