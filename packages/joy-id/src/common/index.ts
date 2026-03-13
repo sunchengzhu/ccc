@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 import {
   AuthResponseData,
   DappRequestType,
@@ -18,7 +20,6 @@ import {
 
 /**
  * Interface representing the return type for various Dapp request types.
- * @interface
  */
 export interface PopupReturnType {
   [DappRequestType.Auth]: AuthResponseData;
@@ -32,19 +33,19 @@ export interface PopupReturnType {
   [DappRequestType.SignCotaNFT]: SignCotaNFTResponseData;
   [DappRequestType.SignCkbRawTx]: SignCkbTxResponseData;
   [DappRequestType.SignNostrEvent]: SignNostrEventData;
-  [DappRequestType.EncryptNostrMessage]: any;
-  [DappRequestType.DecryptNostrMessage]: any;
-  [DappRequestType.AuthMiniApp]: any;
-  [DappRequestType.SignMiniAppEvm]: any;
-  [DappRequestType.SignMiniAppMessage]: any;
+  [DappRequestType.EncryptNostrMessage]: unknown;
+  [DappRequestType.DecryptNostrMessage]: unknown;
+  [DappRequestType.AuthMiniApp]: unknown;
+  [DappRequestType.SignMiniAppEvm]: unknown;
+  [DappRequestType.SignMiniAppMessage]: unknown;
   [DappRequestType.EvmWeb2Login]: EvmWeb2LoginResponse;
 }
 
 /**
  * Creates a popup window for JoyID Dapp requests.
- * @param {string} url - The URL to open in the popup.
- * @param {PopupConfigOptions<T> & { joyidAppURL: string }} config - The popup configuration options.
- * @returns {Promise<PopupReturnType[T]>} A promise that resolves to the response data of the requested type.
+ * @param url - The URL to open in the popup.
+ * @param config - The popup configuration options.
+ * @returns A promise that resolves to the response data of the requested type.
  * @throws {PopupNotSupportedError} If popups are not supported in the current browser.
  * @throws {PopupCancelledError} If the popup is closed by the user.
  * @throws {PopupTimeoutError} If the popup operation times out.

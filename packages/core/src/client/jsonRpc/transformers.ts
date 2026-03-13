@@ -1,3 +1,4 @@
+import { bytesFrom } from "../../bytes/index.js";
 import {
   Cell,
   CellDep,
@@ -17,10 +18,11 @@ import {
   Transaction,
   TransactionLike,
   depTypeFrom,
+  epochFromHex,
   hashTypeFrom,
 } from "../../ckb/index.js";
-import { Hex } from "../../hex/index.js";
-import { NumLike, numFrom, numToHex } from "../../num/index.js";
+import { Hex, HexLike, hexFrom } from "../../hex/index.js";
+import { NumLike, numFrom, numLeFromBytes, numToHex } from "../../num/index.js";
 import { apply } from "../../utils/index.js";
 import {
   ClientBlock,
@@ -122,7 +124,12 @@ export class JsonRpcTransformers {
       since: cellInput.since,
     });
   }
-  static cellOutputFrom(cellOutput: CellOutputLike): JsonRpcCellOutput {
+  static cellOutputFrom(
+    cellOutputLike: CellOutputLike,
+    outputData?: HexLike | null,
+  ): JsonRpcCellOutput {
+    const cellOutput = CellOutput.from(cellOutputLike, outputData);
+
     return {
       capacity: numToHex(cellOutput.capacity),
       lock: JsonRpcTransformers.scriptFrom(cellOutput.lock),
@@ -172,26 +179,45 @@ export class JsonRpcTransformers {
     });
   }
   static transactionResponseTo({
-    tx_status: { status },
+    cycles,
+    tx_status: { status, block_number, block_hash, tx_index, reason },
     transaction,
   }: {
-    tx_status: { status: TransactionStatus };
+    cycles?: NumLike;
+    tx_status: {
+      status: TransactionStatus;
+      block_hash?: HexLike;
+      tx_index?: NumLike;
+      block_number?: NumLike;
+      reason?: string;
+    };
     transaction: JsonRpcTransaction | null;
   }): ClientTransactionResponse | undefined {
     if (transaction == null) {
       return;
     }
 
-    return {
+    return ClientTransactionResponse.from({
       transaction: JsonRpcTransformers.transactionTo(transaction),
       status,
-    };
+      cycles: apply(numFrom, cycles),
+      blockHash: apply(hexFrom, block_hash),
+      blockNumber: apply(numFrom, block_number),
+      txIndex: apply(numFrom, tx_index),
+      reason,
+    });
   }
   static blockHeaderTo(header: JsonRpcBlockHeader): ClientBlockHeader {
+    const dao = bytesFrom(header.dao);
     return {
       compactTarget: numFrom(header.compact_target),
-      dao: header.dao,
-      epoch: numFrom(header.epoch),
+      dao: {
+        c: numLeFromBytes(dao.slice(0, 8)),
+        ar: numLeFromBytes(dao.slice(8, 16)),
+        s: numLeFromBytes(dao.slice(16, 24)),
+        u: numLeFromBytes(dao.slice(24, 32)),
+      },
+      epoch: epochFromHex(header.epoch),
       extraHash: header.extra_hash,
       hash: header.hash,
       nonce: numFrom(header.nonce),

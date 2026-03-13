@@ -1,6 +1,6 @@
 <p align="center">
-  <a href="https://ckbccc-demo.vercel.app/">
-    <img alt="Logo" src="https://raw.githubusercontent.com/ckb-ecofund/ccc/master/assets/logo.svg" width="20%" />
+  <a href="https://app.ckbccc.com/">
+    <img alt="Logo" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/logoAndText.svg" style="height: 8rem; max-width: 90%; padding: 0.5rem 0;" />
   </a>
 </p>
 
@@ -12,37 +12,109 @@
   <a href="https://www.npmjs.com/package/@ckb-ccc/ccc"><img
     alt="NPM Version" src="https://img.shields.io/npm/v/%40ckb-ccc%2Fccc"
   /></a>
-  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/ckb-ecofund/ccc" />
-  <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/ckb-ecofund/ccc/master" />
-  <img alt="GitHub deployments" src="https://img.shields.io/github/deployments/ckb-ecofund/ccc/production" />
-  <a href="https://ckbccc-demo.vercel.app/"><img
-    alt="Demo" src="https://img.shields.io/website?url=https%3A%2F%2Fckbccc-demo.vercel.app%2F&label=Demo"
+  <img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/ckb-devrel/ccc" />
+  <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/ckb-devrel/ccc/master" />
+  <img alt="GitHub branch check runs" src="https://img.shields.io/github/check-runs/ckb-devrel/ccc/master" />
+  <a href="https://live.ckbccc.com/"><img
+    alt="Playground" src="https://img.shields.io/website?url=https%3A%2F%2Flive.ckbccc.com%2F&label=Playground"
+  /></a>
+  <a href="https://app.ckbccc.com/"><img
+    alt="App" src="https://img.shields.io/website?url=https%3A%2F%2Fapp.ckbccc.com%2F&label=App"
+  /></a>
+  <a href="https://docs.ckbccc.com/"><img
+    alt="Docs" src="https://img.shields.io/website?url=https%3A%2F%2Fdocs.ckbccc.com%2F&label=Docs"
   /></a>
 </p>
 
 <p align="center">
-  "CCC - CKBers' Codebase" is the next step of "Common Chains Connector".
+  CCC - CKBers' Codebase is a one-stop solution for your CKB JS/TS ecosystem development.
   <br />
   Empower yourself with CCC to discover the unlimited potential of CKB.
   <br />
   Interoperate with wallets from different chain ecosystems.
   <br />
-  Fully enabling CKB's Turing completeness and cryptographic freedom power.
+  Fully enabling CKB's Turing completeness and cryptographic freedom.
 </p>
 
-## Preview
+## Use Cases
+
+We design CCC to optimize various use cases, including:
+
+- **Learn CKB**: Numerous [basic code examples and web demos based on CCC](https://github.com/ckb-devrel/ccc?tab=readme-ov-file#examples) help you quickly understand how CKB works.
+- **Analyze Data**: Leverage CCC to interact with CKB nodes and process blockchain data programmatically.
+- [**Compose Transaction**](https://github.com/ckb-devrel/ccc?tab=readme-ov-file#transaction-composing): Highly intuitive and customizable transaction composition, with helpers to simplify the process.
+- **Sign Easily**: Unified Signing interface with pre-built signing methods to interoperate with multiple chains seamlessly.
+- **Connect Wallets**: Integrate the connector component in a minute or smoothly build a customized wallet connection UI, enabling your app to reach a wider audience.
+
+Read our [documents](https://docs.ckbccc.com) or [API reference](https://api.ckbccc.com) to learn more about CCC. If you are new to the CKB, we also recommend [Nervos CKB Docs](https://docs.nervos.org/) for basic knowledge.
+
+## Try in the Playground
 
 <p align="center">
-  <a href="https://ckbccc-demo.vercel.app/">
-    <img src="https://raw.githubusercontent.com/ckb-ecofund/ccc/master/assets/preview.png" width="30%" />
+  <a href="https://live.ckbccc.com/">
+    <img src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/preview.png" width="70%" />
   </a>
 </p>
 
-This project is still under active development, and we are looking forward to your feedback. [Try its demo now here](https://ckbccc-demo.vercel.app/). It showcases how to use CCC for some basic scenarios in CKB.
+The CCC Playground is an integrated testing environment in web browsers that supports data visualization and code-sharing. [Click the link](https://live.ckbccc.com/) to run your code without the annoying preparation and watch how the code works, exploring CCC's capabilities.
 
-## Transaction Composing
+For an explanation of the visual elements and interface components in the playground, please refer to [the CCC Playground guide](https://docs.ckbccc.com/docs/playground).
 
-Here's an example for transferring CKB:
+## Quick Start with `create-ccc-app`
+
+Besides short testing, CCC is also suitable for building scalable applications. To get started quickly, you can use our CLI tool `create-ccc-app` to bootstrap a new CCC-based application:
+
+```bash
+# Using npx
+npx create-ccc-app@latest my-ccc-app
+```
+
+```bash
+# Using yarn
+yarn create ccc-app my-ccc-app
+```
+
+```bash
+# Using pnpm
+pnpm create ccc-app my-ccc-app
+```
+
+Follow the prompts to select your preferred framework template and begin building your CCC application.
+
+## Manual Installation
+
+Whether you are a front-end or back-end developer, CCC provides helpful tools and capabilities:
+
+- [NodeJS](https://www.npmjs.com/package/@ckb-ccc/shell): `npm install @ckb-ccc/shell`
+- [Custom UI](https://www.npmjs.com/package/@ckb-ccc/ccc): `npm install @ckb-ccc/ccc`
+- [Web Component](https://www.npmjs.com/package/@ckb-ccc/connector): `npm install @ckb-ccc/connector`
+- [React](https://www.npmjs.com/package/@ckb-ccc/connector-react) ([Docs](https://api.ckbccc.com/modules/_ckb_ccc_connector_react.html)): `npm install @ckb-ccc/connector-react`
+
+All exports from CCC are available on the `ccc` object to help with code completion:
+
+```typescript
+import { ccc } from "@ckb-ccc/<package-name>";
+```
+
+If you are an advanced developer and wish to customize your code heavily, the `<package-name>/advanced` entry point exports `cccA`, which contains almost everything else. Be aware that these interfaces are not stable:
+
+```typescript
+import { cccA } from "@ckb-ccc/<package-name>/advanced";
+```
+
+## Examples
+
+<p align="center">
+  <a href="https://app.ckbccc.com/">
+    <img src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/appPreview.png" width="50%" />
+  </a>
+</p>
+
+The CCC App is a mini-toolset for CKB, showcasing some basic scenarios. You can still [try the CCC App here](https://app.ckbccc.com) even if you are not a developer. To learn more about the app's features, visit [the documentation](https://docs.ckbccc.com/docs/ccc-app).
+
+### Transaction Composing
+
+Let's start with a minimal example for transferring CKB:
 
 ```typescript
 const tx = ccc.Transaction.from({
@@ -50,32 +122,22 @@ const tx = ccc.Transaction.from({
 });
 ```
 
-Tell CCC what you need, and then...
+Define the essential outputs of the transaction, and then...
 
 ```typescript
 await tx.completeInputsByCapacity(signer);
-await tx.completeFeeBy(signer, 1000); // Transaction fee rate
+await tx.completeFeeBy(signer); // Transaction fee rate is calculated automatically
 const txHash = await signer.sendTransaction(tx);
 ```
 
-We have done everything! Check [the demo source code](./packages/demo) for complete examples.
+That's it! The transaction is sent.
 
-## Installing
+[Click here to read the full example of transferring native CKB token.](https://live.ckbccc.com/?src=https://raw.githubusercontent.com/ckb-devrel/ccc/refs/heads/master/packages/examples/src/transfer.ts)
 
-We design CCC for both front-end and back-end developers. You need only one package to fulfil all your needs:
-
-- [NodeJS](https://www.npmjs.com/package/@ckb-ccc/core): `npm install @ckb-ccc/core`
-- [Custom UI](https://www.npmjs.com/package/@ckb-ccc/ccc): `npm install @ckb-ccc/ccc`
-- [Web Component](https://www.npmjs.com/package/@ckb-ccc/connector): `npm install @ckb-ccc/connector`
-- [React](https://www.npmjs.com/package/@ckb-ccc/connector-react): `npm install @ckb-ccc/connector-react`
-
-CCC exports everything on the `ccc` object:
-
-```typescript
-import { ccc } from "@ckb-ccc/<package-name>";
-```
+Additional examples can be found in [the documentation](https://docs.ckbccc.com/docs/code-examples).
 
 ## Build and Run
+
 Run the demo of CCC in two steps:
 
 1. Install packages and build the project
@@ -85,6 +147,7 @@ Run the demo of CCC in two steps:
 pnpm install
 pnpm build
 ```
+
 2. Run the demo in development mode
 
 ```shell
@@ -93,14 +156,16 @@ cd packages/demo
 pnpm run dev
 ```
 
-
 ## Who uses CCC?
 
-| [<img height="50" src="./assets/projects/utxoswap.svg" />](https://utxoswap.xyz/) | [<img height="50" src="./assets/projects/mobit.png" />](https://mobit.app/) | [<img height="50" src="./assets/projects/did.png" />](https://d.id/) | [<img height="50" src="./assets/projects/omiga.svg" />](https://omiga.io/) |
-| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/nervdao.svg" />](https://nervdao.com/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/utxoglobal.svg" />](https://utxo.global/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/mobit.svg" />](https://mobit.app/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/omiga.svg" />](https://omiga.io/) |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
 
-| [<img height="50" src="./assets/projects/nervape.svg" />](https://www.nervape.com/) | [<img height="50" src="./assets/projects/utxoglobal.svg" />](https://utxo.global/) | [<img height="50" src="./assets/projects/boolnetwork.svg" />](https://bool.network/) | [<img height="50" src="./assets/projects/joydao.svg" />](https://joydao.cc/) | [<img height="50" src="./assets/projects/world3.svg" />](https://world3.ai/) |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/nervape.svg" />](https://www.nervape.com/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/utxoswap.svg" />](https://utxoswap.xyz/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/did.svg" />](https://d.id/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/boolnetwork.svg" />](https://bool.network/) |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+
+| [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/world3.svg" />](https://world3.ai/) | [<img style="height: 50px" src="https://raw.githubusercontent.com/ckb-devrel/ccc/master/assets/projects/rgbcat.svg" />](https://catnip.rgbcat.io/) |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 
 ## FAQs
 
@@ -110,12 +175,23 @@ CCC uses JS's [Package Entry Points](https://nodejs.org/api/packages.html#packa
 
 Read the [TypeScript's Guide](https://www.typescriptlang.org/docs/handbook/modules/reference.html#packagejson-exports) for more.
 
+### TypeError: (0, react....createContext) is not a function
+
+CCC UI only works on the client side. If you are using the [React Server Component](https://react.dev/reference/rsc/use-client), add
+
+```tsx
+"use client";
+```
+
+at the beginning of files using `ccc.Provider`.
+
 ### Can I use Lumos with CCC?
 
 While we recommend using CCC for composing transactions, we also provide Lumos patches to:
 
 - Support the JoyID Wallet.
 - Support the Nostr Wallet.
+- Support the Portal Wallet.
 
 See [lumos-patches](https://www.npmjs.com/package/@ckb-ccc/lumos-patches): `npm install @ckb-ccc/lumos-patches`
 
@@ -130,7 +206,9 @@ registerCustomLockScriptInfos(generateDefaultScriptInfos());
 
 ## Links
 
+- [CCC Playground](https://live.ckbccc.com/) and its [source code](https://github.com/ckb-devrel/ccc/tree/master/packages/playground) help you experiment with CCC instantly in browsers.
 - [Nervos CKB Docs](https://docs.nervos.org/) is the documentation website of Nervos CKB.
 - [Lumos](https://github.com/ckb-js/lumos) and its [Docs](https://lumos-website.vercel.app/): Lumos provides utils to help compose CKB transactions.
 - [RGB++ SDK](https://github.com/ckb-cell/rgbpp-sdk) and its [Design](https://github.com/ckb-cell/RGBPlusPlus-design): RGB++ is a protocol for issuing assets with Turing-completed VM on BTC L1.
 - [Spore SDK](https://github.com/sporeprotocol/spore-sdk) and its [Docs](https://docs.spore.pro/): The on-chain digital object (DOBs) protocol designed to empower ownership, distribution, and value capture.
+- [PW SDK](https://talk.nervos.org/t/lay2-pw-sdk-build-dapps-on-ckb-and-run-them-everywhere/4289) is not maintained anymore. It is the early-age wallet connector and a brave pioneer of the CKB ecosystem.

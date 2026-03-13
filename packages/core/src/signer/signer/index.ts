@@ -1,15 +1,25 @@
 import { Address } from "../../address/index.js";
+import { ClientCollectableSearchKeyFilterLike } from "../../advancedBarrel.js";
 import { BytesLike } from "../../bytes/index.js";
-import { Transaction, TransactionLike } from "../../ckb/index.js";
-import { Client } from "../../client/index.js";
+import { Cell, Transaction, TransactionLike } from "../../ckb/index.js";
+import {
+  Client,
+  ClientFindTransactionsGroupedResponse,
+  ClientFindTransactionsResponse,
+  ClientIndexerSearchKeyFilterLike,
+} from "../../client/index.js";
 import { Hex } from "../../hex/index.js";
 import { Num } from "../../num/index.js";
-import { verifyMessageBtcEcdsa } from "../btc/index.js";
+import { verifyMessageBtcEcdsa } from "../btc/verify.js";
 import { verifyMessageCkbSecp256k1 } from "../ckb/verifyCkbSecp256k1.js";
 import { verifyMessageJoyId } from "../ckb/verifyJoyId.js";
+import { verifyMessageDogeEcdsa } from "../doge/verify.js";
 import { verifyMessageEvmPersonal } from "../evm/verify.js";
 import { verifyMessageNostrEvent } from "../nostr/verify.js";
 
+/**
+ * @public
+ */
 export enum SignerSignType {
   Unknown = "Unknown",
   BtcEcdsa = "BtcEcdsa",
@@ -17,35 +27,44 @@ export enum SignerSignType {
   JoyId = "JoyId",
   NostrEvent = "NostrEvent",
   CkbSecp256k1 = "CkbSecp256k1",
+  DogeEcdsa = "DogeEcdsa",
 }
 
 /**
  * An enumeration of signer display types in wallet.
+ * @public
  */
 export enum SignerType {
   EVM = "EVM",
   BTC = "BTC",
   CKB = "CKB",
   Nostr = "Nostr",
+  Doge = "Doge",
 }
 
+/**
+ * @public
+ */
 export type NetworkPreference = {
   addressPrefix: string;
   signerType: SignerType;
+  /**
+   * Wallet signers should check if the wallet is using preferred networks.
+   * If not, try to switch to the first preferred network.
+   * If non preferred, let users choose what they want.
+   * BTC: // They made a mess...
+   *   btc
+   *   btcTestnet
+   *   btcTestnet4 // UTXO Global
+   *   btcSignet // OKX & UTXO Global
+   *   fractalBtc // UniSat
+   */
   network: string;
-  /*
-    Wallet signers should check if the wallet is using preferred networks.
-    If not, try to switch to the first preferred network.
-    If non preferred, let users choose what they want.
-
-    BTC: // They made a mess...
-      btc
-      btcTestnet
-      btcSignet // OKX
-      fractalBtc // UniSat
-  */
 };
 
+/**
+ * @public
+ */
 export class Signature {
   constructor(
     public signature: string,
@@ -57,6 +76,7 @@ export class Signature {
 /**
  * An abstract class representing a generic signer.
  * This class provides methods to connect, get addresses, and sign transactions.
+ * @public
  */
 export abstract class Signer {
   constructor(protected client_: Client) {}
@@ -72,14 +92,16 @@ export abstract class Signer {
   // undefined otherwise
   matchNetworkPreference(
     preferences: NetworkPreference[],
-    currentNetwork: string,
-  ) {
+    currentNetwork: string | undefined,
+  ): NetworkPreference | undefined {
     if (
-      preferences.some(({ signerType, addressPrefix, network }) => {
-        signerType === this.type &&
+      currentNetwork !== undefined &&
+      preferences.some(
+        ({ signerType, addressPrefix, network }) =>
+          signerType === this.type &&
           addressPrefix === this.client.addressPrefix &&
-          network === currentNetwork;
-      })
+          network === currentNetwork,
+      )
     ) {
       return;
     }
@@ -124,9 +146,26 @@ export abstract class Signer {
           signature.signature,
           signature.identity,
         );
+      case SignerSignType.DogeEcdsa:
+        return verifyMessageDogeEcdsa(
+          message,
+          signature.signature,
+          signature.identity,
+        );
       case SignerSignType.Unknown:
         throw new Error("Unknown signer sign type");
     }
+  }
+
+  static async fromSignature(
+    _client: Client,
+    _signature: Signature,
+    _message?: string | BytesLike | null,
+    ..._addresses: (string | string[])[]
+  ): Promise<Signer | undefined> {
+    throw Error(
+      "Signer.fromSignature should be override to avoid circular references",
+    );
   }
 
   /**
@@ -214,6 +253,136 @@ export abstract class Signer {
   }
 
   /**
+   * Find cells of this signer
+   *
+   * @param filter - The filter for the search key.
+   * @param withData - Whether to include cell data in the response.
+   * @param order - The order of the returned cells, can be "asc" or "desc".
+   * @param limit - The maximum number of cells for every querying chunk.
+   * @returns A async generator that yields all matching cells
+   */
+  async *findCellsOnChain(
+    filter: ClientIndexerSearchKeyFilterLike,
+    withData?: boolean | null,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<Cell> {
+    const scripts = await this.getAddressObjs();
+    for (const { script } of scripts) {
+      for await (const cell of this.client.findCellsOnChain(
+        {
+          script,
+          scriptType: "lock",
+          filter,
+          scriptSearchMode: "exact",
+          withData,
+        },
+        order,
+        limit,
+      )) {
+        yield cell;
+      }
+    }
+  }
+
+  /**
+   * Find cells of this signer
+   *
+   * @returns A async generator that yields all matches cells
+   */
+  async *findCells(
+    filter: ClientCollectableSearchKeyFilterLike,
+    withData?: boolean | null,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<Cell> {
+    const scripts = await this.getAddressObjs();
+    for (const { script } of scripts) {
+      for await (const cell of this.client.findCells(
+        {
+          script,
+          scriptType: "lock",
+          filter,
+          scriptSearchMode: "exact",
+          withData,
+        },
+        order,
+        limit,
+      )) {
+        yield cell;
+      }
+    }
+  }
+
+  /**
+   * Find transactions of this signer
+   *
+   * @returns A async generator that yields all matches transactions
+   */
+  findTransactions(
+    filter: ClientCollectableSearchKeyFilterLike,
+    groupByTransaction?: false | null,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<ClientFindTransactionsResponse["transactions"][0]>;
+  /**
+   * Find transactions of this signer
+   *
+   * @returns A async generator that yields all matches transactions
+   */
+  findTransactions(
+    filter: ClientCollectableSearchKeyFilterLike,
+    groupByTransaction: true,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<ClientFindTransactionsGroupedResponse["transactions"][0]>;
+  /**
+   * Find transactions of this signer
+   *
+   * @returns A async generator that yields all matches transactions
+   */
+  findTransactions(
+    filter: ClientCollectableSearchKeyFilterLike,
+    groupByTransaction?: boolean | null,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<
+    | ClientFindTransactionsResponse["transactions"][0]
+    | ClientFindTransactionsGroupedResponse["transactions"][0]
+  >;
+  /**
+   * Find transactions of this signer
+   *
+   * @returns A async generator that yields all matches transactions
+   */
+  async *findTransactions(
+    filter: ClientCollectableSearchKeyFilterLike,
+    groupByTransaction?: boolean | null,
+    order?: "asc" | "desc",
+    limit?: number,
+  ): AsyncGenerator<
+    | ClientFindTransactionsResponse["transactions"][0]
+    | ClientFindTransactionsGroupedResponse["transactions"][0]
+  > {
+    const scripts = await this.getAddressObjs();
+    for (const { script } of scripts) {
+      for await (const transaction of this.client.findTransactions(
+        {
+          script,
+          scriptType: "lock",
+          filter,
+          scriptSearchMode: "exact",
+          groupByTransaction,
+        },
+        order,
+        limit,
+      )) {
+        yield transaction;
+      }
+    }
+  }
+
+  /**
    * Gets balance of all addresses
    *
    * @returns A promise that resolves to the balance
@@ -227,7 +396,7 @@ export abstract class Signer {
   /**
    * Signs a message.
    *
-   * @param _ - The message to sign, as a string or BytesLike object.
+   * @param message - The message to sign, as a string or BytesLike object.
    * @returns A promise that resolves to the signature info.
    * @throws Will throw an error if not implemented.
    */
@@ -253,8 +422,8 @@ export abstract class Signer {
   /**
    * Verify a signature.
    *
-   * @param _ - The original message.
-   * @param _ - The signature to verify.
+   * @param message - The original message.
+   * @param signature - The signature to verify.
    * @returns A promise that resolves to the verification result.
    * @throws Will throw an error if not implemented.
    */
@@ -302,14 +471,23 @@ export abstract class Signer {
   }
 
   /**
-   * prepare a transaction before signing. This method is not implemented and should be overridden by subclasses.
+   * Prepares a transaction before signing.
+   * This method can be overridden by subclasses to perform any necessary steps,
+   * such as adding cell dependencies or witnesses, before the transaction is signed.
+   * The default implementation converts the {@link TransactionLike} object to a {@link Transaction} object
+   * without modification.
    *
-   * @param _ - The transaction to prepare, represented as a TransactionLike object.
-   * @returns A promise that resolves to the prepared Transaction object.
-   * @throws Will throw an error if not implemented.
+   * @remarks
+   * Note that this default implementation does not add any cell dependencies or dummy witnesses.
+   * This may lead to an underestimation of transaction size and fees if used with methods
+   * like `Transaction.completeFee`. Subclasses for signers that are intended to sign
+   * transactions should override this method to perform necessary preparations.
+   *
+   * @param tx - The transaction to prepare.
+   * @returns A promise that resolves to the prepared {@link Transaction} object.
    */
-  prepareTransaction(_: TransactionLike): Promise<Transaction> {
-    throw Error("Signer.prepareTransaction not implemented");
+  async prepareTransaction(tx: TransactionLike): Promise<Transaction> {
+    return Transaction.from(tx);
   }
 
   /**
@@ -326,6 +504,7 @@ export abstract class Signer {
 
 /**
  * A class representing information about a signer, including its type and the signer instance.
+ * @public
  */
 export class SignerInfo {
   constructor(
@@ -336,6 +515,7 @@ export class SignerInfo {
 
 /**
  * Represents a wallet with a name, icon, and an array of signer information.
+ * @public
  */
 export type Wallet = {
   name: string;

@@ -1,0 +1,37 @@
+{
+  "name": "@ckb-ccc/ccc-examples",
+  "version": "1.0.21",
+  "description": "CCC code examples for CCC Playground",
+  "author": "Hanssen0 <hanssen0@hanssen0.com>",
+  "license": "MIT",
+  "private": true,
+  "homepage": "https://github.com/ckb-devrel/ccc",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/ckb-devrel/ccc.git"
+  },
+  "scripts": {
+    "build": "rimraf ./dist && tsc",
+    "lint": "eslint ./src",
+    "format": "prettier --write . && eslint --fix ./src"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "eslint": "^9.34.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.6.2",
+    "prettier-plugin-organize-imports": "^4.2.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.41.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@ckb-ccc/ccc": "workspace:*",
+    "@ckb-ccc/playground": "file:src/playground"
+  },
+  "packageManager": "pnpm@10.8.1"
+}

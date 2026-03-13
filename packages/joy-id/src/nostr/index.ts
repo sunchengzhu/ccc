@@ -8,21 +8,19 @@ import {
 } from "../connectionsStorage/index.js";
 
 /**
- * Class representing a Nostr signer that extends SignerNostr from @ckb-ccc/core.
- * @class
- * @extends {ccc.SignerNostr}
+ * Class representing a Nostr signer that extends SignerNostr
+ * @public
  */
 export class NostrSigner extends ccc.SignerNostr {
   private connection?: Connection;
 
   /**
    * Ensures that the signer is connected and returns the connection.
-   * @private
    * @throws Will throw an error if not connected.
-   * @returns {Connection} The current connection.
+   * @returns The current connection.
    */
-  private assertConnection(): Connection {
-    if (!this.isConnected() || !this.connection) {
+  private async assertConnection(): Promise<Connection> {
+    if (!(await this.isConnected()) || !this.connection) {
       throw new Error("Not connected");
     }
 
@@ -34,7 +32,7 @@ export class NostrSigner extends ccc.SignerNostr {
    * @param client - The client instance.
    * @param name - The name of the signer.
    * @param icon - The icon URL of the signer.
-   * @param appUri - The application URI.
+   * @param _appUri - The application URI.
    * @param connectionsRepo - The connections repository.
    */
   constructor(
@@ -49,16 +47,16 @@ export class NostrSigner extends ccc.SignerNostr {
 
   /**
    * Gets the configuration for JoyID.
-   * @private
-   * @returns {object} The configuration object.
+   * @returns The configuration object.
    */
   private getConfig() {
     return {
       redirectURL: location.href,
       joyidAppURL:
-        this._appUri ?? this.client.addressPrefix === "ckb"
+        this._appUri ??
+        (this.client.addressPrefix === "ckb"
           ? "https://app.joy.id"
-          : "https://testnet.joyid.dev",
+          : "https://testnet.joyid.dev"),
       requestNetwork: "nostr",
       name: this.name,
       logo: this.icon,
@@ -67,7 +65,7 @@ export class NostrSigner extends ccc.SignerNostr {
 
   /**
    * Connects to the provider by requesting authentication.
-   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   * @returns A promise that resolves when the connection is established.
    */
   async connect(): Promise<void> {
     const config = this.getConfig();
@@ -93,7 +91,7 @@ export class NostrSigner extends ccc.SignerNostr {
 
   /**
    * Checks if the signer is connected.
-   * @returns {Promise<boolean>} A promise that resolves to true if connected, false otherwise.
+   * @returns A promise that resolves to true if connected, false otherwise.
    */
   async isConnected(): Promise<boolean> {
     if (this.connection) {
@@ -105,7 +103,7 @@ export class NostrSigner extends ccc.SignerNostr {
   }
 
   async getNostrPublicKey(): Promise<ccc.Hex> {
-    return this.assertConnection().publicKey;
+    return (await this.assertConnection()).publicKey;
   }
 
   async signNostrEvent(
@@ -124,8 +122,7 @@ export class NostrSigner extends ccc.SignerNostr {
 
   /**
    * Saves the current connection.
-   * @private
-   * @returns {Promise<void>}
+   * @returns
    */
   private async saveConnection(): Promise<void> {
     return this.connectionsRepo.set(
@@ -139,8 +136,7 @@ export class NostrSigner extends ccc.SignerNostr {
 
   /**
    * Restores the previous connection.
-   * @private
-   * @returns {Promise<void>}
+   * @returns
    */
   private async restoreConnection(): Promise<void> {
     this.connection = await this.connectionsRepo.get({

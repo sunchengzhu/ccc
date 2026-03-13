@@ -1,5 +1,3 @@
-import { ripemd160 } from "@noble/hashes/ripemd160";
-import { sha256 } from "@noble/hashes/sha256";
 import { Address } from "../../address/index.js";
 import { bytesConcat, bytesFrom } from "../../bytes/index.js";
 import { Transaction, TransactionLike, WitnessArgs } from "../../ckb/index.js";
@@ -7,11 +5,13 @@ import { KnownScript } from "../../client/index.js";
 import { HexLike, hexFrom } from "../../hex/index.js";
 import { numToBytes } from "../../num/index.js";
 import { Signer, SignerSignType, SignerType } from "../signer/index.js";
+import { btcEcdsaPublicKeyHash } from "./verify.js";
 
 /**
  * An abstract class extending the Signer class for Bitcoin-like signing operations.
  * This class provides methods to get Bitcoin account, public key, and internal address,
  * as well as signing transactions.
+ * @public
  */
 export abstract class SignerBtc extends Signer {
   get type(): SignerType {
@@ -61,7 +61,7 @@ export abstract class SignerBtc extends Signer {
    */
   async getAddressObjs(): Promise<Address[]> {
     const publicKey = await this.getBtcPublicKey();
-    const hash = ripemd160(sha256(bytesFrom(publicKey)));
+    const hash = btcEcdsaPublicKeyHash(publicKey);
 
     return [
       await Address.fromKnownScript(

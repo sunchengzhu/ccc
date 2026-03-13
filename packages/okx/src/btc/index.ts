@@ -2,17 +2,17 @@ import { ccc } from "@ckb-ccc/core";
 import { BitcoinProvider } from "../advancedBarrel.js";
 
 /**
- * Class representing a Bitcoin signer that extends SignerBtc from @ckb-ccc/core.
- * @class
- * @extends {ccc.SignerBtc}
+ * Class representing a Bitcoin signer that extends SignerBtc
+ * @public
  */
 export class BitcoinSigner extends ccc.SignerBtc {
   private network = "btcTestnet";
 
   /**
    * Creates an instance of Signer.
-   * @param {ccc.Client} client - The client instance.
-   * @param {Provider} provider - The provider instance.
+   * @param client - The client instance.
+   * @param providers - The providers instance.
+   * @param preferredNetworks - All preferred networks
    */
   constructor(
     client: ccc.Client,
@@ -61,9 +61,17 @@ export class BitcoinSigner extends ccc.SignerBtc {
 
   /**
    * Gets the Bitcoin account address.
-   * @returns {Promise<string>} A promise that resolves to the Bitcoin account address.
+   * @returns A promise that resolves to the Bitcoin account address.
    */
   async getBtcAccount(): Promise<string> {
+    if (this.provider.getAccounts) {
+      const address = (await this.provider.getAccounts())[0];
+      if (!address) {
+        throw Error("Not connected");
+      }
+      return address;
+    }
+
     if (this.provider.getSelectedAccount) {
       const account = await this.provider.getSelectedAccount();
       if (!account) {
@@ -72,18 +80,22 @@ export class BitcoinSigner extends ccc.SignerBtc {
       return account.address;
     }
 
-    const address = (await this.provider.getAccounts())[0];
-    if (!address) {
-      throw Error("Not connected");
-    }
-    return address;
+    throw Error("Unsupported OKX provider");
   }
 
   /**
    * Gets the Bitcoin public key.
-   * @returns {Promise<ccc.Hex>} A promise that resolves to the Bitcoin public key.
+   * @returns A promise that resolves to the Bitcoin public key.
    */
   async getBtcPublicKey(): Promise<ccc.Hex> {
+    if (this.provider.getPublicKey) {
+      const publicKey = await this.provider.getPublicKey();
+      if (publicKey === "") {
+        throw Error("The OKX Wallet returned wrong public key");
+      }
+      return ccc.hexFrom(publicKey);
+    }
+
     if (this.provider.getSelectedAccount) {
       const account = await this.provider.getSelectedAccount();
       if (!account) {
@@ -92,19 +104,25 @@ export class BitcoinSigner extends ccc.SignerBtc {
       return ccc.hexFrom(account.compressedPublicKey);
     }
 
-    return ccc.hexFrom(await this.provider.getPublicKey());
+    throw Error("Unsupported OKX provider");
   }
 
   /**
    * Connects to the provider by requesting accounts.
-   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   * @returns A promise that resolves when the connection is established.
    */
   async connect(): Promise<void> {
+    if (this.provider.requestAccounts) {
+      await this.provider.requestAccounts();
+      return;
+    }
+
     if (this.provider.connect) {
       await this.provider.connect();
       return;
     }
-    await this.provider.requestAccounts();
+
+    throw Error("Unsupported OKX provider");
   }
 
   onReplaced(listener: () => void): () => void {
@@ -124,21 +142,23 @@ export class BitcoinSigner extends ccc.SignerBtc {
 
   /**
    * Checks if the signer is connected.
-   * @returns {Promise<boolean>} A promise that resolves to true if connected, false otherwise.
+   * @returns A promise that resolves to true if connected, false otherwise.
    */
   async isConnected(): Promise<boolean> {
     try {
-      this.provider;
+      void this.provider; // Invoke provider getter
     } catch (_) {
       return false;
     }
 
-    if (this.provider.getSelectedAccount) {
+    if (this.provider.getAccounts) {
+      if ((await this.provider.getAccounts()).length === 0) {
+        return false;
+      }
+    } else if (this.provider.getSelectedAccount) {
       if ((await this.provider.getSelectedAccount()) === null) {
         return false;
       }
-    } else if ((await this.provider.getAccounts()).length === 0) {
-      return false;
     }
 
     await this.connect();
@@ -147,8 +167,8 @@ export class BitcoinSigner extends ccc.SignerBtc {
 
   /**
    * Signs a raw message with the Bitcoin account.
-   * @param {string | ccc.BytesLike} message - The message to sign.
-   * @returns {Promise<string>} A promise that resolves to the signed message.
+   * @param message - The message to sign.
+   * @returns A promise that resolves to the signed message.
    */
   async signMessageRaw(message: string | ccc.BytesLike): Promise<string> {
     const challenge =

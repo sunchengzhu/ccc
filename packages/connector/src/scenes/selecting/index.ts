@@ -1,27 +1,18 @@
 import { ccc } from "@ckb-ccc/ccc";
 import { css, html, LitElement } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { WalletWithSigners } from "../../types";
-import { generateConnectingScene } from "./connecting";
-import { generateSignersScene } from "./signers";
-import { generateWalletsScene } from "./wallets";
-
-export class ConnectedEvent extends Event {
-  constructor(
-    public readonly walletName: string,
-    public readonly signerName: string,
-  ) {
-    super("connected");
-  }
-}
+import { CloseEvent, ConnectedEvent } from "../../events/index.js";
+import { generateConnectingScene } from "./connecting.js";
+import { generateSignersScene } from "./signers.js";
+import { generateWalletsScene } from "./wallets.js";
 
 @customElement("ccc-selecting-scene")
 export class SelectingScene extends LitElement {
   @property()
-  public wallets?: WalletWithSigners[];
+  public wallets?: ccc.WalletWithSigners[];
 
   @state()
-  private selectedWallet?: WalletWithSigners;
+  private selectedWallet?: ccc.WalletWithSigners;
   @state()
   private selectedSigner?: ccc.SignerInfo;
   @state()
@@ -56,9 +47,6 @@ export class SelectingScene extends LitElement {
     return html`<ccc-dialog
       header=${title}
       ?canBack=${this.selectedSigner || this.selectedWallet}
-      @close=${() => {
-        this.onClose();
-      }}
       @back=${() => {
         if (
           !this.selectedSigner ||
@@ -81,16 +69,21 @@ export class SelectingScene extends LitElement {
   }
 
   private signerSelectedHandler = (
-    wallet: WalletWithSigners,
+    wallet: ccc.WalletWithSigners,
     signerInfo: ccc.SignerInfo,
   ) => {
     this.connectingError = undefined;
     this.selectedWallet = wallet;
     this.selectedSigner = signerInfo;
-    (async () => {
+    void (async () => {
       const { signer } = signerInfo;
       try {
         await signer.connect();
+
+        if (!(await signer.isConnected())) {
+          this.connectingError = "Unknown connection status";
+          return;
+        }
       } catch (error) {
         if (typeof error !== "object" || error === null) {
           this.connectingError = JSON.stringify(error);
@@ -109,17 +102,22 @@ export class SelectingScene extends LitElement {
         }
 
         this.connectingError = JSON.stringify(message);
-      }
-      if (!(await signer.isConnected())) {
         return;
       }
 
-      this.dispatchEvent(new Event("close", { bubbles: true, composed: true }));
-      this.dispatchEvent(new ConnectedEvent(wallet.name, signerInfo.name));
+      this.dispatchEvent(
+        new CloseEvent(() => {
+          this.dispatchEvent(new ConnectedEvent(wallet.name, signerInfo.name));
+        }),
+      );
     })();
   };
 
   static styles = css`
+    .primary-icon {
+      color: var(--icon-primary);
+    }
+
     :host {
       display: block;
     }

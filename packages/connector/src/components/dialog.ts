@@ -1,12 +1,13 @@
 import { css, html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { CLOSE_SVG } from "../assets/close.svg";
-import { LEFT_SVG } from "../assets/left.svg";
+import { CLOSE_SVG } from "../assets/close.svg.js";
+import { LEFT_SVG } from "../assets/left.svg.js";
+import { CloseEvent } from "../events/index.js";
 
 @customElement("ccc-dialog")
 export class Dialog extends LitElement {
   @property()
-  public canBack: any | undefined;
+  public canBack: unknown;
   @property()
   public header?: string;
 
@@ -15,23 +16,23 @@ export class Dialog extends LitElement {
       <div
         class="header text-bold fs-lg ${this.header ? "header-divider" : ""}"
       >
-        <img
-          class="back ${this.canBack !== undefined ? "active" : ""}"
-          src=${LEFT_SVG}
+        <div
+          class="back ${this.canBack != null ? "active" : ""}"
           @click=${() => {
             this.dispatchEvent(new Event("back"));
           }}
-        />
+        >
+          ${LEFT_SVG}
+        </div>
         ${this.header}
-        <img
+        <span
           class="close active"
-          src=${CLOSE_SVG}
           @click=${() => {
-            this.dispatchEvent(
-              new Event("close", { bubbles: true, composed: true }),
-            );
+            this.dispatchEvent(new CloseEvent());
           }}
-        />
+        >
+          ${CLOSE_SVG}
+        </span>
       </div>
       <div class="body">
         <slot></slot>
@@ -40,6 +41,9 @@ export class Dialog extends LitElement {
   }
 
   static styles = css`
+    .primary-icon {
+      color: var(--icon-primary);
+    }
     .text-bold {
       font-weight: bold;
     }
@@ -69,29 +73,33 @@ export class Dialog extends LitElement {
     .header-divider {
       padding-bottom: 1rem;
       border-bottom: 1px solid var(--divider);
-      margin-bottom: 0.3rem;
     }
-
     .close,
     .back {
+      padding: 0.2rem 0.4rem;
+      cursor: pointer;
+    }
+    .close svg,
+    .back svg {
       width: 0.8rem;
       height: 0.8rem;
       opacity: 0;
       transition: opacity 0.15s ease-in-out;
     }
 
-    .close.active,
-    .back.active {
+    .close.active svg,
+    .back.active svg {
       opacity: 1;
-      cursor: pointer;
     }
 
     .body {
-      padding: 0 1.3rem 1rem;
+      padding: 0.3rem 1.3rem 1rem;
       min-width: 20rem;
       display: flex;
       flex-direction: column;
       align-items: center;
+      max-height: 80vh;
+      overflow-y: auto;
     }
   `;
 }

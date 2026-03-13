@@ -1,19 +1,32 @@
 import { Bytes, BytesLike, bytesFrom } from "../bytes/index.js";
-import { Client, KnownScript } from "../client/index.js";
-import { hashCkb } from "../hasher/index.js";
+import type { Client } from "../client/index.js";
+import { KnownScript } from "../client/knownScript.js";
 import { Hex, HexLike, hexFrom } from "../hex/index.js";
-import * as mol from "./molecule.advanced/index.js";
+import { mol } from "../molecule/index.js";
 import {
   HASH_TYPES,
   HASH_TYPE_TO_NUM,
   NUM_TO_HASH_TYPE,
 } from "./script.advanced.js";
 
+export const HashTypeCodec: mol.Codec<HashTypeLike, HashType> = mol.Codec.from({
+  byteLength: 1,
+  encode: hashTypeToBytes,
+  decode: hashTypeFromBytes,
+});
+
+/**
+ * @public
+ */
 export type HashTypeLike = string | number | bigint;
+/**
+ * @public
+ */
 export type HashType = "type" | "data" | "data1" | "data2";
 
 /**
  * Converts a HashTypeLike value to a HashType.
+ * @public
  *
  * @param val - The value to convert, which can be a string, number, or bigint.
  * @returns The corresponding HashType.
@@ -50,6 +63,7 @@ export function hashTypeFrom(val: HashTypeLike): HashType {
 
 /**
  * Converts a HashTypeLike value to its corresponding byte representation.
+ * @public
  *
  * @param hashType - The hash type value to convert.
  * @returns A Uint8Array containing the byte representation of the hash type.
@@ -66,6 +80,7 @@ export function hashTypeToBytes(hashType: HashTypeLike): Bytes {
 
 /**
  * Converts a byte-like value to a HashType.
+ * @public
  *
  * @param bytes - The byte-like value to convert.
  * @returns The corresponding HashType.
@@ -82,12 +97,25 @@ export function hashTypeFromBytes(bytes: BytesLike): HashType {
   return NUM_TO_HASH_TYPE[bytesFrom(bytes)[0]];
 }
 
+/**
+ * @public
+ */
 export type ScriptLike = {
   codeHash: BytesLike;
   hashType: HashTypeLike;
   args: BytesLike;
 };
-export class Script {
+/**
+ * @public
+ */
+@mol.codec(
+  mol.table({
+    codeHash: mol.Byte32,
+    hashType: HashTypeCodec,
+    args: mol.Bytes,
+  }),
+)
+export class Script extends mol.Entity.Base<ScriptLike, Script>() {
   /**
    * Creates an instance of Script.
    *
@@ -99,7 +127,9 @@ export class Script {
     public codeHash: Hex,
     public hashType: HashType,
     public args: Hex,
-  ) {}
+  ) {
+    super();
+  }
 
   get occupiedSize(): number {
     return 33 + bytesFrom(this.args).length;
@@ -117,6 +147,26 @@ export class Script {
    */
   clone(): Script {
     return new Script(this.codeHash, this.hashType, this.args);
+  }
+
+  /**
+   * Check if the script is equal to another script.
+   * @public
+   * @param other - The other script to compare with
+   * @returns True if the scripts are equal, false otherwise
+   *
+   * @example
+   * ```typescript
+   * const isEqual = script0.eq(script1);
+   * ```
+   */
+  eq(other: ScriptLike): boolean {
+    other = Script.from(other);
+    return (
+      this.args === other.args &&
+      this.codeHash === other.codeHash &&
+      this.hashType === other.hashType
+    );
   }
 
   /**
@@ -179,85 +229,7 @@ export class Script {
    *
    * @returns An object representing the script in molecule data format.
    */
-
-  _toMolData() {
-    return {
-      codeHash: bytesFrom(this.codeHash),
-      hashType: hashTypeToBytes(this.hashType),
-      args: bytesFrom(this.args),
-    };
-  }
-
-  /**
-   * Converts the Script instance to bytes.
-   *
-   * @returns A Uint8Array containing the script bytes.
-   *
-   * @example
-   * ```typescript
-   * const scriptBytes = script.toBytes();
-   * ```
-   */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeScript(this._toMolData()));
-  }
-
-  /**
-   * Get hash of a script
-   *
-   * @returns Hash of this script
-   *
-   * @example
-   * ```typescript
-   * const hash = script.hash();
-   * ```
-   */
-  hash(): Hex {
-    return hashCkb(this.toBytes());
-  }
-
-  /**
-   * Creates a Script instance from a byte-like value or molecule Script.
-   *
-   * @param bytes - The byte-like value or molecule Script to convert.
-   * @returns A Script instance.
-   *
-   * @example
-   * ```typescript
-   * const script = Script.fromBytes(new Uint8Array([/* script bytes *\/]));
-   * ```
-   */
-
-  static fromBytes(bytes: BytesLike | mol.Script): Script {
-    const view =
-      bytes instanceof mol.Script ? bytes : new mol.Script(bytesFrom(bytes));
-
-    return new Script(
-      hexFrom(view.getCodeHash().raw()),
-      hashTypeFromBytes([view.getHashType()]),
-      hexFrom(view.getArgs().raw()),
-    );
-  }
-
-  /**
-   * Compares the current Script instance with another ScriptLike object for equality.
-   *
-   * @param val - The ScriptLike object to compare with.
-   * @returns True if the scripts are equal, otherwise false.
-   *
-   * @example
-   * ```typescript
-   * const isEqual = script.eq(anotherScript);
-   * ```
-   */
-
-  eq(val: ScriptLike): boolean {
-    const script = Script.from(val);
-    return (
-      this.codeHash === script.codeHash &&
-      this.args === script.args &&
-      this.hashType === script.hashType
-    );
-  }
 }
+
+export const ScriptOpt = mol.option(Script);
+export const ScriptVec = mol.vector(Script);

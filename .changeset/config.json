@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.2/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "ckb-devrel/ccc" }],
+  "prettier": false,
+  "commit": false,
+  "fixed": [],
+  "linked": [],
+  "access": "public",
+  "baseBranch": "master",
+  "updateInternalDependencies": "patch",
+  "ignore": [
+    "@ckb-ccc/ccc-tests",
+    "@ckb-ccc/ccc-demo",
+    "@ckb-ccc/ccc-faucet",
+    "@ckb-ccc/ccc-playground",
+    "@ckb-ccc/ccc-docs",
+    "@ckb-ccc/ccc-examples"
+  ]
+}

@@ -1,23 +1,28 @@
 import {
   Cell,
   CellDep,
-  CellDepLike,
-  CellLike,
   OutPoint,
   OutPointLike,
-  Script,
   ScriptLike,
   Transaction,
   TransactionLike,
 } from "../ckb/index.js";
 import { Zero } from "../fixedPoint/index.js";
 import { Hex, HexLike, hexFrom } from "../hex/index.js";
-import { Num, NumLike, numFrom } from "../num/index.js";
-import { apply, reduceAsync } from "../utils/index.js";
-import { filterCell } from "./client.advanced.js";
-import { ClientCollectableSearchKeyLike } from "./clientTypes.advanced.js";
+import { Num, NumLike, numFrom, numMax, numMin } from "../num/index.js";
+import { reduceAsync, sleep } from "../utils/index.js";
+import { ClientCache } from "./cache/index.js";
+import { ClientCacheMemory } from "./cache/memory.js";
 import {
+  ClientCollectableSearchKeyLike,
+  DEFAULT_MAX_FEE_RATE,
+  DEFAULT_MIN_FEE_RATE,
+} from "./clientTypes.advanced.js";
+import {
+  CellDepInfo,
+  CellDepInfoLike,
   ClientBlock,
+  ClientBlockHeader,
   ClientFindCellsResponse,
   ClientFindTransactionsGroupedResponse,
   ClientFindTransactionsResponse,
@@ -25,90 +30,144 @@ import {
   ClientIndexerSearchKeyLike,
   ClientIndexerSearchKeyTransactionLike,
   ClientTransactionResponse,
+  ErrorClientMaxFeeRateExceeded,
+  ErrorClientWaitTransactionTimeout,
   OutputsValidator,
+  ScriptInfo,
 } from "./clientTypes.js";
+import { KnownScript } from "./knownScript.js";
 
-export enum KnownScript {
-  Secp256k1Blake160 = "Secp256k1Blake160",
-  Secp256k1Multisig = "Secp256k1Multisig",
-  AnyoneCanPay = "AnyoneCanPay",
-  TypeId = "TypeId",
-  XUdt = "XUdt",
-  JoyId = "JoyId",
-  COTA = "COTA",
-  OmniLock = "OmniLock",
-  NostrLock = "NostrLock",
-  UniqueType = "UniqueType",
-  SingleUseLock = "SingleUseLock",
-  OutputTypeProxyLock = "OutputTypeProxyLock",
-}
-
-export type CellDepInfoLike = {
-  cellDep: CellDepLike;
-  type?: ScriptLike | null;
-};
-
-export class CellDepInfo {
-  constructor(
-    public cellDep: CellDep,
-    public type?: Script,
-  ) {}
-
-  static from(cellDepInfoLike: CellDepInfoLike): CellDepInfo {
-    return new CellDepInfo(
-      CellDep.from(cellDepInfoLike.cellDep),
-      apply(Script.from, cellDepInfoLike.type),
-    );
-  }
-}
-
+/**
+ * @public
+ */
 export abstract class Client {
-  private readonly cachedTransactions: Transaction[] = [];
-  private readonly unusableOutPoints: OutPoint[] = [];
-  private readonly usableCells: Cell[] = [];
-  private readonly knownCells: Cell[] = [];
+  public cache: ClientCache;
+
+  constructor(config?: { cache?: ClientCache }) {
+    this.cache = config?.cache ?? new ClientCacheMemory();
+  }
 
   abstract get url(): string;
   abstract get addressPrefix(): string;
 
-  abstract getKnownScript(
-    script: KnownScript,
-  ): Promise<
-    Pick<Script, "codeHash" | "hashType"> & { cellDeps: CellDepInfo[] }
-  >;
+  abstract getKnownScript(script: KnownScript): Promise<ScriptInfo>;
+
+  abstract getFeeRateStatistics(
+    blockRange?: NumLike,
+  ): Promise<{ mean?: Num; median?: Num }>;
+  async getFeeRate(
+    blockRange?: NumLike,
+    options?: { maxFeeRate?: NumLike },
+  ): Promise<Num> {
+    const feeRate = numMax(
+      (await this.getFeeRateStatistics(blockRange)).median ?? Zero,
+      DEFAULT_MIN_FEE_RATE,
+    );
+
+    const maxFeeRate = numFrom(options?.maxFeeRate ?? DEFAULT_MAX_FEE_RATE);
+    if (maxFeeRate === Zero) {
+      return feeRate;
+    }
+
+    return numMin(feeRate, maxFeeRate);
+  }
 
   abstract getTip(): Promise<Num>;
-  abstract getBlockByNumber(
+  abstract getTipHeader(verbosity?: number | null): Promise<ClientBlockHeader>;
+  abstract getBlockByNumberNoCache(
     blockNumber: NumLike,
     verbosity?: number | null,
     withCycles?: boolean | null,
   ): Promise<ClientBlock | undefined>;
-  abstract getBlockByHash(
+  abstract getBlockByHashNoCache(
     blockHash: HexLike,
     verbosity?: number | null,
     withCycles?: boolean | null,
   ): Promise<ClientBlock | undefined>;
-
-  async markUsable(cellLike: CellLike): Promise<void> {
-    const cell = Cell.from(cellLike).clone();
-    this.usableCells.push(cell);
-    this.knownCells.push(cell);
-
-    const index = this.unusableOutPoints.findIndex((o) => cell.outPoint.eq(o));
-    if (index !== -1) {
-      this.unusableOutPoints.splice(index, 1);
+  abstract getHeaderByNumberNoCache(
+    blockNumber: NumLike,
+    verbosity?: number | null,
+  ): Promise<ClientBlockHeader | undefined>;
+  abstract getHeaderByHashNoCache(
+    blockHash: HexLike,
+    verbosity?: number | null,
+  ): Promise<ClientBlockHeader | undefined>;
+  async getBlockByNumber(
+    blockNumber: NumLike,
+    verbosity?: number | null,
+    withCycles?: boolean | null,
+  ): Promise<ClientBlock | undefined> {
+    const block = await this.cache.getBlockByNumber(blockNumber);
+    if (block) {
+      return block;
     }
+
+    const res = await this.getBlockByNumberNoCache(
+      blockNumber,
+      verbosity,
+      withCycles,
+    );
+    if (res && this.cache.hasHeaderConfirmed(res.header)) {
+      await this.cache.recordBlocks(res);
+    }
+    return res;
+  }
+  async getBlockByHash(
+    blockHash: HexLike,
+    verbosity?: number | null,
+    withCycles?: boolean | null,
+  ): Promise<ClientBlock | undefined> {
+    const block = await this.cache.getBlockByHash(blockHash);
+    if (block) {
+      return block;
+    }
+
+    const res = await this.getBlockByHashNoCache(
+      blockHash,
+      verbosity,
+      withCycles,
+    );
+    if (res && this.cache.hasHeaderConfirmed(res.header)) {
+      await this.cache.recordBlocks(res);
+    }
+    return res;
+  }
+  async getHeaderByNumber(
+    blockNumber: NumLike,
+    verbosity?: number | null,
+  ): Promise<ClientBlockHeader | undefined> {
+    const header = await this.cache.getHeaderByNumber(blockNumber);
+    if (header) {
+      return header;
+    }
+
+    const res = await this.getHeaderByNumberNoCache(blockNumber, verbosity);
+    if (res && this.cache.hasHeaderConfirmed(res)) {
+      await this.cache.recordHeaders(res);
+    }
+    return res;
+  }
+  async getHeaderByHash(
+    blockHash: HexLike,
+    verbosity?: number | null,
+  ): Promise<ClientBlockHeader | undefined> {
+    const header = await this.cache.getHeaderByHash(blockHash);
+    if (header) {
+      return header;
+    }
+
+    const res = await this.getHeaderByHashNoCache(blockHash, verbosity);
+    if (res && this.cache.hasHeaderConfirmed(res)) {
+      await this.cache.recordHeaders(res);
+    }
+    return res;
   }
 
-  async markUnusable(outPointLike: OutPointLike): Promise<void> {
-    const outPoint = OutPoint.from(outPointLike);
-    this.unusableOutPoints.push(outPoint.clone());
-
-    const index = this.usableCells.findIndex((c) => c.outPoint.eq(outPoint));
-    if (index !== -1) {
-      this.usableCells.splice(index, 1);
-    }
-  }
+  abstract estimateCycles(transaction: TransactionLike): Promise<Num>;
+  abstract sendTransactionDry(
+    transaction: TransactionLike,
+    validator?: OutputsValidator,
+  ): Promise<Num>;
 
   abstract sendTransactionNoCache(
     transaction: TransactionLike,
@@ -118,31 +177,81 @@ export abstract class Client {
     txHash: HexLike,
   ): Promise<ClientTransactionResponse | undefined>;
 
+  /**
+   * Get a cell by its out point.
+   * The cell will be cached if it is found.
+   *
+   * @param outPointLike - The out point of the cell to get.
+   * @returns The cell if it exists, otherwise undefined.
+   */
   async getCell(outPointLike: OutPointLike): Promise<Cell | undefined> {
     const outPoint = OutPoint.from(outPointLike);
-    const cached = this.knownCells.find((cell) => cell.outPoint.eq(outPoint));
+    const cached = await this.cache.getCell(outPoint);
 
     if (cached) {
-      return cached.clone();
+      return cached;
     }
 
-    const transaction = await this.getTransactionNoCache(outPoint.txHash);
+    const transaction = await this.getTransaction(outPoint.txHash);
     if (!transaction) {
       return;
     }
-
-    const index = Number(numFrom(outPoint.index));
-    if (index >= transaction.transaction.outputs.length) {
+    const output = transaction.transaction.getOutput(outPoint.index);
+    if (!output) {
       return;
     }
 
     const cell = Cell.from({
+      ...output,
       outPoint,
-      cellOutput: transaction.transaction.outputs[index],
-      outputData: transaction.transaction.outputsData[index] ?? "0x",
     });
-    this.knownCells.push(cell);
-    return cell.clone();
+    await this.cache.recordCells(cell);
+    return cell;
+  }
+
+  async getCellWithHeader(
+    outPointLike: OutPointLike,
+  ): Promise<{ cell: Cell; header?: ClientBlockHeader } | undefined> {
+    const outPoint = OutPoint.from(outPointLike);
+
+    const res = await this.getTransactionWithHeader(outPoint.txHash);
+    if (!res) {
+      return;
+    }
+    const { transaction, header } = res;
+
+    const output = transaction.transaction.getOutput(outPoint.index);
+    if (!output) {
+      return;
+    }
+
+    const cell = Cell.from({
+      ...output,
+      outPoint,
+    });
+    await this.cache.recordCells(cell);
+    return { cell, header };
+  }
+
+  abstract getCellLiveNoCache(
+    outPointLike: OutPointLike,
+    withData?: boolean | null,
+    includeTxPool?: boolean | null,
+  ): Promise<Cell | undefined>;
+  async getCellLive(
+    outPointLike: OutPointLike,
+    withData?: boolean | null,
+    includeTxPool?: boolean | null,
+  ): Promise<Cell | undefined> {
+    const cell = await this.getCellLiveNoCache(
+      outPointLike,
+      withData,
+      includeTxPool,
+    );
+    if (withData && cell) {
+      await this.cache.recordCells(cell);
+    }
+    return cell;
   }
 
   abstract findCellsPagedNoCache(
@@ -158,11 +267,11 @@ export abstract class Client {
     after?: string,
   ): Promise<ClientFindCellsResponse> {
     const res = await this.findCellsPagedNoCache(key, order, limit, after);
-    this.knownCells.push(...res.cells);
+    await this.cache.recordCells(res.cells);
     return res;
   }
 
-  async *findCells(
+  async *findCellsOnChain(
     key: ClientIndexerSearchKeyLike,
     order?: "asc" | "desc",
     limit = 10,
@@ -188,26 +297,33 @@ export abstract class Client {
 
   /**
    * Find cells by search key designed for collectable cells.
+   * The result also includes cached cells, the order param only works for cells fetched from RPC.
    *
-   * @param key - The search key.
+   * @param keyLike - The search key.
    * @returns A async generator for yielding cells.
    */
-  async *findCellsByCollectableSearchKey(
+  async *findCells(
     keyLike: ClientCollectableSearchKeyLike,
     order?: "asc" | "desc",
     limit = 10,
   ): AsyncGenerator<Cell> {
     const key = ClientIndexerSearchKey.from(keyLike);
-    for (const cell of this.usableCells) {
-      if (filterCell(key, cell)) {
-        yield cell;
-      }
+    const foundedOutPoints = [];
+
+    for await (const cell of this.cache.findCells(key)) {
+      foundedOutPoints.push(cell.outPoint);
+      yield cell;
     }
 
-    for await (const cell of this.findCells(key, order, limit)) {
-      if (!this.unusableOutPoints.some((o) => o.eq(cell.outPoint))) {
-        yield cell;
+    for await (const cell of this.findCellsOnChain(key, order, limit)) {
+      if (
+        (await this.cache.isUnusable(cell.outPoint)) ||
+        foundedOutPoints.some((founded) => founded.eq(cell.outPoint))
+      ) {
+        continue;
       }
+
+      yield cell;
     }
   }
 
@@ -218,7 +334,7 @@ export abstract class Client {
     order?: "asc" | "desc",
     limit = 10,
   ): AsyncGenerator<Cell> {
-    return this.findCellsByCollectableSearchKey(
+    return this.findCells(
       {
         script: lock,
         scriptType: "lock",
@@ -239,7 +355,7 @@ export abstract class Client {
     order?: "asc" | "desc",
     limit = 10,
   ): AsyncGenerator<Cell> {
-    return this.findCellsByCollectableSearchKey(
+    return this.findCells(
       {
         script: type,
         scriptType: "type",
@@ -478,27 +594,19 @@ export abstract class Client {
   async sendTransaction(
     transaction: TransactionLike,
     validator?: OutputsValidator,
+    options?: { maxFeeRate?: NumLike },
   ): Promise<Hex> {
     const tx = Transaction.from(transaction);
 
+    const maxFeeRate = numFrom(options?.maxFeeRate ?? DEFAULT_MAX_FEE_RATE);
+    const feeRate = await tx.getFeeRate(this);
+    if (maxFeeRate > Zero && feeRate > maxFeeRate) {
+      throw new ErrorClientMaxFeeRateExceeded(maxFeeRate, feeRate);
+    }
+
     const txHash = await this.sendTransactionNoCache(tx, validator);
 
-    this.cachedTransactions.push(tx.clone());
-    await Promise.all(
-      tx.inputs.map((i) => this.markUnusable(i.previousOutput)),
-    );
-    await Promise.all(
-      tx.outputs.map((o, i) =>
-        this.markUsable({
-          cellOutput: o,
-          outputData: tx.outputsData[i],
-          outPoint: {
-            txHash,
-            index: i,
-          },
-        }),
-      ),
-    );
+    await this.cache.markTransactions(tx);
     return txHash;
   }
 
@@ -507,18 +615,92 @@ export abstract class Client {
   ): Promise<ClientTransactionResponse | undefined> {
     const txHash = hexFrom(txHashLike);
     const res = await this.getTransactionNoCache(txHash);
-    if (res !== null) {
+    if (res) {
+      await this.cache.recordTransactionResponses(res);
       return res;
     }
 
-    const tx = this.cachedTransactions.find((t) => t.hash() === txHash);
-    if (!tx) {
+    return this.cache.getTransactionResponse(txHash);
+  }
+
+  /**
+   * This method gets specified transaction with its block header (if existed).
+   * This is mainly for caching because we need the header to test if we can safely trust the cached tx status.
+   * @param txHashLike
+   */
+  async getTransactionWithHeader(
+    txHashLike: HexLike,
+  ): Promise<
+    | { transaction: ClientTransactionResponse; header?: ClientBlockHeader }
+    | undefined
+  > {
+    const txHash = hexFrom(txHashLike);
+    const tx = await this.cache.getTransactionResponse(txHash);
+    if (tx?.blockHash) {
+      const header = await this.getHeaderByHash(tx.blockHash);
+      if (header && this.cache.hasHeaderConfirmed(header)) {
+        return {
+          transaction: tx,
+          header,
+        };
+      }
+    }
+
+    const res = await this.getTransactionNoCache(txHash);
+    if (!res) {
       return;
     }
 
+    await this.cache.recordTransactionResponses(res);
     return {
-      transaction: tx,
-      status: "proposed",
+      transaction: res,
+      header: res.blockHash
+        ? await this.getHeaderByHash(res.blockHash)
+        : undefined,
     };
+  }
+
+  async waitTransaction(
+    txHash: HexLike,
+    confirmations: number = 0,
+    timeout: number = 60000,
+    interval: number = 2000,
+  ): Promise<ClientTransactionResponse | undefined> {
+    const startTime = Date.now();
+    let tx: ClientTransactionResponse | undefined;
+
+    const getTx = async () => {
+      const res = await this.getTransaction(txHash);
+      if (
+        !res ||
+        res.blockNumber == null ||
+        ["sent", "pending", "proposed"].includes(res.status)
+      ) {
+        return undefined;
+      }
+
+      tx = res;
+      return res;
+    };
+
+    while (true) {
+      if (!tx) {
+        if (await getTx()) {
+          continue;
+        }
+      } else if (confirmations === 0) {
+        return tx;
+      } else if (
+        (await this.getTipHeader()).number - tx.blockNumber! >=
+        confirmations
+      ) {
+        return tx;
+      }
+
+      if (Date.now() - startTime + interval >= timeout) {
+        throw new ErrorClientWaitTransactionTimeout(timeout);
+      }
+      await sleep(interval);
+    }
   }
 }

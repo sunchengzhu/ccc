@@ -1,14 +1,16 @@
-import type { TransactionSkeletonType } from "@ckb-lumos/helpers";
-import { ClientCollectableSearchKeyFilterLike } from "../advancedBarrel.js";
 import { Bytes, BytesLike, bytesFrom } from "../bytes/index.js";
-import { CellDepInfoLike, Client, KnownScript } from "../client/index.js";
+import type { ClientCollectableSearchKeyFilterLike } from "../client/clientTypes.advanced.js";
 import {
-  Zero,
-  fixedPointFrom,
-  fixedPointToString,
-} from "../fixedPoint/index.js";
-import { Hasher, hashCkb } from "../hasher/index.js";
+  ClientBlockHeader,
+  type CellDepInfoLike,
+  type Client,
+  type ClientBlockHeaderLike,
+} from "../client/index.js";
+import { KnownScript } from "../client/knownScript.js";
+import { Zero, fixedPointFrom } from "../fixedPoint/index.js";
+import { Hasher, HasherCkb, hashCkb } from "../hasher/index.js";
 import { Hex, HexLike, hexFrom } from "../hex/index.js";
+import { mol } from "../molecule/index.js";
 import {
   Num,
   NumLike,
@@ -17,17 +19,34 @@ import {
   numToBytes,
   numToHex,
 } from "../num/index.js";
-import { Signer } from "../signer/index.js";
+import type { Signer } from "../signer/index.js";
 import { apply, reduceAsync } from "../utils/index.js";
-import * as mol from "./molecule.advanced/index.js";
-import { Script, ScriptLike } from "./script.js";
+import { Script, ScriptLike, ScriptOpt } from "./script.js";
 import { DEP_TYPE_TO_NUM, NUM_TO_DEP_TYPE } from "./transaction.advanced.js";
+import {
+  ErrorTransactionInsufficientCapacity,
+  ErrorTransactionInsufficientCoin,
+} from "./transactionErrors.js";
+import type { LumosTransactionSkeletonType } from "./transactionLumos.js";
 
+export const DepTypeCodec: mol.Codec<DepTypeLike, DepType> = mol.Codec.from({
+  byteLength: 1,
+  encode: depTypeToBytes,
+  decode: depTypeFromBytes,
+});
+
+/**
+ * @public
+ */
 export type DepTypeLike = string | number | bigint;
+/**
+ * @public
+ */
 export type DepType = "depGroup" | "code";
 
 /**
  * Converts a DepTypeLike value to a DepType.
+ * @public
  *
  * @param val - The value to convert, which can be a string, number, or bigint.
  * @returns The corresponding DepType.
@@ -61,6 +80,7 @@ export function depTypeFrom(val: DepTypeLike): DepType {
 
 /**
  * Converts a DepTypeLike value to its corresponding byte representation.
+ * @public
  *
  * @param depType - The dep type value to convert.
  * @returns A Uint8Array containing the byte representation of the dep type.
@@ -77,6 +97,7 @@ export function depTypeToBytes(depType: DepTypeLike): Bytes {
 
 /**
  * Converts a byte-like value to a DepType.
+ * @public
  *
  * @param bytes - The byte-like value to convert.
  * @returns The corresponding DepType.
@@ -93,11 +114,23 @@ export function depTypeFromBytes(bytes: BytesLike): DepType {
   return NUM_TO_DEP_TYPE[bytesFrom(bytes)[0]];
 }
 
+/**
+ * @public
+ */
 export type OutPointLike = {
   txHash: HexLike;
   index: NumLike;
 };
-export class OutPoint {
+/**
+ * @public
+ */
+@mol.codec(
+  mol.struct({
+    txHash: mol.Byte32,
+    index: mol.Uint32,
+  }),
+)
+export class OutPoint extends mol.Entity.Base<OutPointLike, OutPoint>() {
   /**
    * Creates an instance of OutPoint.
    *
@@ -108,20 +141,8 @@ export class OutPoint {
   constructor(
     public txHash: Hex,
     public index: Num,
-  ) {}
-
-  /**
-   * Clone an OutPoint.
-   *
-   * @returns A cloned OutPoint instance.
-   *
-   * @example
-   * ```typescript
-   * const outPoint1 = outPoint0.clone();
-   * ```
-   */
-  clone(): OutPoint {
-    return new OutPoint(this.txHash, this.index);
+  ) {
+    super();
   }
 
   /**
@@ -143,80 +164,55 @@ export class OutPoint {
   }
 
   /**
-   * Converts the OutPoint instance to molecule data format.
+   * Clone a OutPoint.
    *
-   * @returns An object representing the outpoint in molecule data format.
-   */
-
-  _toMolData() {
-    return {
-      txHash: bytesFrom(this.txHash),
-      index: numToBytes(this.index, 4),
-    };
-  }
-
-  /**
-   * Converts the OutPoint instance to bytes.
-   *
-   * @returns A Uint8Array containing the outpoint bytes.
+   * @returns A cloned OutPoint instance.
    *
    * @example
    * ```typescript
-   * const outPointBytes = outPoint.toBytes();
+   * const outPoint1 = outPoint0.clone();
    * ```
    */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeOutPoint(this._toMolData()));
+  clone(): OutPoint {
+    return new OutPoint(this.txHash, this.index);
   }
 
   /**
-   * Creates an OutPoint instance from a byte-like value or molecule OutPoint.
-   *
-   * @param bytes - The byte-like value or molecule OutPoint to convert.
-   * @returns An OutPoint instance.
-   *
-   * @example
-   * ```typescript
-   * const outPoint = OutPoint.fromBytes(new Uint8Array([/* outpoint bytes *\/]));
-   * ```
-   */
-
-  static fromBytes(bytes: BytesLike | mol.OutPoint): OutPoint {
-    const view =
-      bytes instanceof mol.OutPoint
-        ? bytes
-        : new mol.OutPoint(bytesFrom(bytes));
-
-    return new OutPoint(
-      hexFrom(view.getTxHash().raw()),
-      numFromBytes(view.getIndex().raw()),
-    );
-  }
-
-  /**
-   * Compares the current OutPoint instance with another OutPointLike object for equality.
-   *
-   * @param val - The OutPointLike object to compare with.
-   * @returns True if the out points are equal, otherwise false.
+   * Check if the OutPoint is equal to another OutPoint.
+   * @public
+   * @param other - The other OutPoint to compare with
+   * @returns True if the OutPoints are equal, false otherwise
    *
    * @example
    * ```typescript
-   * const isEqual = outPoint.eq(anotherOutPoint);
+   * const isEqual = outPoint0.eq(outPoint1);
    * ```
    */
-  eq(val: OutPointLike): boolean {
-    const outPoint = OutPoint.from(val);
-    return this.txHash === outPoint.txHash && this.index === outPoint.index;
+  eq(other: OutPointLike): boolean {
+    other = OutPoint.from(other);
+    return this.txHash === other.txHash && this.index === other.index;
   }
 }
 
+/**
+ * @public
+ */
 export type CellOutputLike = {
-  capacity: NumLike;
+  capacity?: NumLike | null;
   lock: ScriptLike;
   type?: ScriptLike | null;
 };
-export class CellOutput {
+/**
+ * @public
+ */
+@mol.codec(
+  mol.table({
+    capacity: mol.Uint64,
+    lock: Script,
+    type: ScriptOpt,
+  }),
+)
+export class CellOutput extends mol.Entity.Base<CellOutputLike, CellOutput>() {
   /**
    * Creates an instance of CellOutput.
    *
@@ -229,10 +225,61 @@ export class CellOutput {
     public capacity: Num,
     public lock: Script,
     public type?: Script,
-  ) {}
+  ) {
+    super();
+  }
 
   get occupiedSize(): number {
     return 8 + this.lock.occupiedSize + (this.type?.occupiedSize ?? 0);
+  }
+
+  /**
+   * Creates a CellOutput instance from a CellOutputLike object.
+   * This method supports automatic capacity calculation when outputData is provided and capacity is 0 or omitted.
+   *
+   * @param cellOutput - A CellOutputLike object or an instance of CellOutput.
+   * @param outputData - Optional output data used for automatic capacity calculation.
+   *                     When provided and capacity is 0, the capacity will be calculated
+   *                     as occupiedSize + outputData.length.
+   * @returns A CellOutput instance.
+   *
+   * @example
+   * ```typescript
+   * // Basic usage with explicit capacity
+   * const cellOutput1 = CellOutput.from({
+   *   capacity: 1000n,
+   *   lock: { codeHash: "0x...", hashType: "type", args: "0x..." },
+   *   type: { codeHash: "0x...", hashType: "type", args: "0x..." }
+   * });
+   *
+   * // Automatic capacity calculation
+   * const cellOutput2 = CellOutput.from({
+   *   lock: { codeHash: "0x...", hashType: "type", args: "0x..." }
+   * }, "0x1234"); // Capacity will be calculated automatically
+   * ```
+   */
+  static from(
+    cellOutput: CellOutputLike,
+    outputData?: HexLike | null,
+  ): CellOutput {
+    const output = (() => {
+      if (cellOutput instanceof CellOutput) {
+        return cellOutput;
+      }
+      return new CellOutput(
+        numFrom(cellOutput.capacity ?? 0),
+        Script.from(cellOutput.lock),
+        apply(Script.from, cellOutput.type),
+      );
+    })();
+
+    if (output.capacity === Zero && outputData != null) {
+      output.capacity = fixedPointFrom(
+        output.occupiedSize + bytesFrom(outputData).length,
+      );
+    }
+
+    return output;
   }
 
   /**
@@ -248,97 +295,183 @@ export class CellOutput {
   clone(): CellOutput {
     return new CellOutput(this.capacity, this.lock.clone(), this.type?.clone());
   }
+}
+export const CellOutputVec = mol.vector(CellOutput);
+
+/**
+ * @public
+ * Represents a cell-like object that may or may not be on-chain.
+ * It can optionally have an `outPoint` (or `previousOutput`).
+ * This is used as a flexible input for creating `CellAny` instances.
+ * @see CellAny
+ */
+export type CellAnyLike = {
+  outPoint?: OutPointLike | null;
+  previousOutput?: OutPointLike | null;
+  cellOutput: CellOutputLike;
+  outputData?: HexLike | null;
+};
+/**
+ * Represents a CKB cell that can be either on-chain (with an `outPoint`) or off-chain (without an `outPoint`).
+ * This class provides a unified interface for handling cells before they are included in a transaction,
+ * or for cells that are already part of the blockchain state.
+ *
+ * @public
+ */
+export class CellAny {
+  public outPoint: OutPoint | undefined;
 
   /**
-   * Creates a CellOutput instance from a CellOutputLike object.
+   * Creates an instance of CellAny.
    *
-   * @param cellOutput - A CellOutputLike object or an instance of CellOutput.
-   * @returns A CellOutput instance.
+   * @param cellOutput - The cell output of the cell.
+   * @param outputData - The output data of the cell.
+   * @param outPoint - The optional output point of the cell. If provided, the cell is considered on-chain.
+   */
+
+  constructor(
+    public cellOutput: CellOutput,
+    public outputData: Hex,
+    outPoint?: OutPoint,
+  ) {
+    this.outPoint = outPoint;
+  }
+
+  /**
+   * Creates a `CellAny` instance from a `CellAnyLike` object.
+   * This factory method provides a convenient way to create `CellAny` instances
+   * from plain objects, automatically handling the optional `outPoint` or `previousOutput`.
+   *
+   * @param cell - A `CellAnyLike` object.
+   * @returns A new `CellAny` instance.
    *
    * @example
    * ```typescript
-   * const cellOutput = CellOutput.from({
-   *   capacity: 1000n,
-   *   lock: { codeHash: "0x...", hashType: "type", args: "0x..." },
-   *   type: { codeHash: "0x...", hashType: "type", args: "0x..." }
+   * // Create an off-chain cell (e.g., a new output)
+   * const offChainCell = CellAny.from({
+   *   cellOutput: { capacity: 1000n, lock: lockScript },
+   *   outputData: "0x"
+   * });
+   *
+   * // Create an on-chain cell from an input
+   * const onChainCell = CellAny.from({
+   *   outPoint: { txHash: "0x...", index: 0 },
+   *   cellOutput: { capacity: 2000n, lock: lockScript },
+   *   outputData: "0x1234"
    * });
    * ```
    */
-  static from(cellOutput: CellOutputLike): CellOutput {
-    if (cellOutput instanceof CellOutput) {
-      return cellOutput;
+  static from(cell: CellAnyLike): CellAny {
+    if (cell instanceof CellAny) {
+      return cell;
     }
 
-    return new CellOutput(
-      numFrom(cellOutput.capacity),
-      Script.from(cellOutput.lock),
-      apply(Script.from, cellOutput.type),
+    const outputData = hexFrom(cell.outputData ?? "0x");
+
+    return new CellAny(
+      CellOutput.from(cell.cellOutput, outputData),
+      outputData,
+      apply(OutPoint.from, cell.outPoint ?? cell.previousOutput),
     );
   }
 
   /**
-   * Converts the CellOutput instance to molecule data format.
+   * Calculates the total occupied size of the cell in bytes.
+   * This includes the size of the `CellOutput` structure plus the size of the `outputData`.
    *
-   * @returns An object representing the cell output in molecule data format.
+   * @returns The total occupied size in bytes.
    */
-
-  _toMolData() {
-    return {
-      capacity: numToBytes(this.capacity, 8),
-      lock: this.lock._toMolData(),
-      type: this.type?._toMolData(),
-    };
+  get occupiedSize() {
+    return this.cellOutput.occupiedSize + bytesFrom(this.outputData).byteLength;
   }
 
   /**
-   * Converts the CellOutput instance to bytes.
+   * Calculates the free capacity of the cell.
+   * Free capacity is the total capacity minus the capacity occupied by the cell's structure and data.
    *
-   * @returns A Uint8Array containing the cell output bytes.
-   *
-   * @example
-   * ```typescript
-   * const cellOutputBytes = cellOutput.toBytes();
-   * ```
+   * @returns The free capacity in shannons as a `Num`.
    */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeCellOutput(this._toMolData()));
+  get capacityFree() {
+    return this.cellOutput.capacity - fixedPointFrom(this.occupiedSize);
   }
 
   /**
-   * Creates a CellOutput instance from a byte-like value or molecule CellOutput.
+   * Checks if the cell is a Nervos DAO cell and optionally checks its phase.
    *
-   * @param bytes - The byte-like value or molecule CellOutput to convert.
-   * @returns A CellOutput instance.
+   * @param client - A CKB client instance to fetch known script information.
+   * @param phase - Optional phase to check: "deposited" or "withdrew".
+   *                If omitted, it checks if the cell is a DAO cell regardless of phase.
+   * @returns A promise that resolves to `true` if the cell is a matching Nervos DAO cell, `false` otherwise.
+   */
+  async isNervosDao(
+    client: Client,
+    phase?: "deposited" | "withdrew",
+  ): Promise<boolean> {
+    const { type } = this.cellOutput;
+
+    const daoType = await client.getKnownScript(KnownScript.NervosDao);
+    if (
+      !type ||
+      type.codeHash !== daoType.codeHash ||
+      type.hashType !== daoType.hashType
+    ) {
+      // Non Nervos DAO cell
+      return false;
+    }
+
+    const hasWithdrew = numFrom(this.outputData) !== Zero;
+    return (
+      !phase ||
+      (phase === "deposited" && !hasWithdrew) ||
+      (phase === "withdrew" && hasWithdrew)
+    );
+  }
+
+  /**
+   * Clones the `CellAny` instance.
+   *
+   * @returns A new `CellAny` instance that is a deep copy of the current one.
    *
    * @example
    * ```typescript
-   * const cellOutput = CellOutput.fromBytes(new Uint8Array([/* cell output bytes *\/]));
+   * const clonedCell = cellAny.clone();
    * ```
    */
-
-  static fromBytes(bytes: BytesLike | mol.CellOutput): CellOutput {
-    const view =
-      bytes instanceof mol.CellOutput
-        ? bytes
-        : new mol.CellOutput(bytesFrom(bytes));
-
-    return new CellOutput(
-      numFromBytes(view.getCapacity().raw()),
-      Script.fromBytes(view.getLock()),
-      apply(Script.fromBytes, mol.molOptional(view.getType())),
+  clone(): CellAny {
+    return new CellAny(
+      this.cellOutput.clone(),
+      this.outputData,
+      this.outPoint?.clone(),
     );
   }
 }
 
-export type CellLike = {
-  outPoint: OutPointLike;
-  cellOutput: CellOutputLike;
-  outputData: HexLike;
-};
-export class Cell {
+/**
+ * Represents a cell-like object that is guaranteed to be on-chain.
+ * It must have an `outPoint` (or its alias `previousOutput`).
+ * This is used as a type constraint for creating `Cell` instances.
+ * @see Cell
+ * @public
+ */
+export type CellLike = CellAnyLike &
+  (
+    | {
+        outPoint: OutPointLike;
+        previousOutput?: undefined | null;
+      }
+    | {
+        outPoint?: undefined | null;
+        previousOutput: OutPointLike;
+      }
+  );
+/**
+ * Represents an on-chain CKB cell, which is a `CellAny` that is guaranteed to have an `outPoint`.
+ * This class is typically used for cells that are already part of the blockchain state, such as transaction inputs.
+ * @public
+ */
+export class Cell extends CellAny {
   /**
-   * Creates an instance of Cell.
+   * Creates an instance of an on-chain Cell.
    *
    * @param outPoint - The output point of the cell.
    * @param cellOutput - The cell output of the cell.
@@ -347,15 +480,45 @@ export class Cell {
 
   constructor(
     public outPoint: OutPoint,
-    public cellOutput: CellOutput,
-    public outputData: Hex,
-  ) {}
+    cellOutput: CellOutput,
+    outputData: Hex,
+  ) {
+    super(cellOutput, outputData, outPoint);
+  }
 
   /**
    * Creates a Cell instance from a CellLike object.
+   * This method accepts either `outPoint` or `previousOutput` to specify the cell's location,
+   * and supports automatic capacity calculation for the cell output.
    *
-   * @param cell - A CellLike object or an instance of Cell.
+   * @param cell - A CellLike object or an instance of Cell. The object can use either:
+   *               - `outPoint`: For referencing a cell output
+   *               - `previousOutput`: For referencing a cell input (alternative name for outPoint)
+   *               The cellOutput can omit capacity for automatic calculation.
    * @returns A Cell instance.
+   *
+   * @example
+   * ```typescript
+   * // Using outPoint with explicit capacity
+   * const cell1 = Cell.from({
+   *   outPoint: { txHash: "0x...", index: 0 },
+   *   cellOutput: {
+   *     capacity: 1000n,
+   *     lock: { codeHash: "0x...", hashType: "type", args: "0x..." }
+   *   },
+   *   outputData: "0x"
+   * });
+   *
+   * // Using previousOutput with automatic capacity calculation
+   * const cell2 = Cell.from({
+   *   previousOutput: { txHash: "0x...", index: 0 },
+   *   cellOutput: {
+   *     lock: { codeHash: "0x...", hashType: "type", args: "0x..." }
+   *     // capacity will be calculated automatically
+   *   },
+   *   outputData: "0x1234"
+   * });
+   * ```
    */
 
   static from(cell: CellLike): Cell {
@@ -364,10 +527,108 @@ export class Cell {
     }
 
     return new Cell(
-      OutPoint.from(cell.outPoint),
-      CellOutput.from(cell.cellOutput),
-      hexFrom(cell.outputData),
+      OutPoint.from(cell.outPoint ?? cell.previousOutput),
+      CellOutput.from(cell.cellOutput, cell.outputData),
+      hexFrom(cell.outputData ?? "0x"),
     );
+  }
+
+  /**
+   * Gets confirmed Nervos DAO profit of a Cell
+   * It returns non-zero value only when the cell is in withdrawal phase 2
+   * See https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md
+   *
+   * @param client - A client for searching DAO related headers
+   * @returns Profit
+   *
+   * @example
+   * ```typescript
+   * const profit = await cell.getDaoProfit(client);
+   * ```
+   */
+  async getDaoProfit(client: Client): Promise<Num> {
+    if (!(await this.isNervosDao(client, "withdrew"))) {
+      return Zero;
+    }
+
+    const { depositHeader, withdrawHeader } =
+      await this.getNervosDaoInfo(client);
+    if (!withdrawHeader || !depositHeader) {
+      throw new Error(
+        `Unable to get headers of a Nervos DAO cell ${this.outPoint.txHash}:${this.outPoint.index.toString()}`,
+      );
+    }
+
+    return calcDaoProfit(this.capacityFree, depositHeader, withdrawHeader);
+  }
+
+  /**
+   * Retrieves detailed information about a Nervos DAO cell, including its deposit and withdrawal headers.
+   *
+   * @param client - A CKB client instance to fetch cell and header data.
+   * @returns A promise that resolves to an object containing header information.
+   *          - If not a DAO cell, returns `{}`.
+   *          - If a deposited DAO cell, returns `{ depositHeader }`.
+   *          - If a withdrawn DAO cell, returns `{ depositHeader, withdrawHeader }`.
+   *
+   * @throws If the cell is a DAO cell but its corresponding headers cannot be fetched.
+   *
+   * @example
+   * ```typescript
+   * const daoInfo = await cell.getNervosDaoInfo(client);
+   * ```
+   */
+  async getNervosDaoInfo(client: Client): Promise<
+    // Non Nervos DAO cell
+    | {
+        depositHeader?: undefined;
+        withdrawHeader?: undefined;
+      }
+    // Deposited Nervos DAO cell
+    | {
+        depositHeader: ClientBlockHeader;
+        withdrawHeader?: undefined;
+      }
+    // Withdrew Nervos DAO cell
+    | {
+        depositHeader: ClientBlockHeader;
+        withdrawHeader: ClientBlockHeader;
+      }
+  > {
+    if (!(await this.isNervosDao(client))) {
+      // Non Nervos DAO cell
+      return {};
+    }
+
+    if (numFrom(this.outputData) === Zero) {
+      // Deposited Nervos DAO cell
+      const depositRes = await client.getCellWithHeader(this.outPoint);
+      if (!depositRes?.header) {
+        throw new Error(
+          `Unable to get header of a Nervos DAO deposited cell ${this.outPoint.txHash}:${this.outPoint.index.toString()}`,
+        );
+      }
+
+      return {
+        depositHeader: depositRes.header,
+      };
+    }
+
+    // Withdrew Nervos DAO cell
+    const [depositHeader, withdrawRes] = await Promise.all([
+      client.getHeaderByNumber(numFromBytes(this.outputData)),
+      client.getCellWithHeader(this.outPoint),
+    ]);
+    if (!withdrawRes?.header || !depositHeader) {
+      throw new Error(
+        `Unable to get headers of a Nervos DAO withdrew cell ${this.outPoint.txHash}:${this.outPoint.index.toString()}`,
+      );
+    }
+
+    return {
+      depositHeader,
+      withdrawHeader: withdrawRes.header,
+    };
   }
 
   /**
@@ -389,13 +650,188 @@ export class Cell {
   }
 }
 
-export type CellInputLike = {
-  previousOutput: OutPointLike;
-  since?: NumLike | null;
+/**
+ * @public
+ */
+export type EpochLike = [NumLike, NumLike, NumLike];
+/**
+ * @public
+ */
+export type Epoch = [Num, Num, Num];
+/**
+ * @public
+ */
+export function epochFrom(epochLike: EpochLike): Epoch {
+  return [numFrom(epochLike[0]), numFrom(epochLike[1]), numFrom(epochLike[2])];
+}
+/**
+ * @public
+ */
+export function epochFromHex(hex: HexLike): Epoch {
+  const num = numFrom(hexFrom(hex));
+
+  return [
+    num & numFrom("0xffffff"),
+    (num >> numFrom(24)) & numFrom("0xffff"),
+    (num >> numFrom(40)) & numFrom("0xffff"),
+  ];
+}
+/**
+ * @public
+ */
+export function epochToHex(epochLike: EpochLike): Hex {
+  const epoch = epochFrom(epochLike);
+
+  return numToHex(
+    numFrom(epoch[0]) +
+      (numFrom(epoch[1]) << numFrom(24)) +
+      (numFrom(epoch[2]) << numFrom(40)),
+  );
+}
+
+/**
+ * @public
+ */
+export type SinceLike =
+  | {
+      relative: "absolute" | "relative";
+      metric: "blockNumber" | "epoch" | "timestamp";
+      value: NumLike;
+    }
+  | NumLike;
+/**
+ * @public
+ */
+@mol.codec(
+  mol.Uint64.mapIn((encodable: SinceLike) => Since.from(encodable).toNum()),
+)
+export class Since extends mol.Entity.Base<SinceLike, Since>() {
+  /**
+   * Creates an instance of Since.
+   *
+   * @param relative - Absolute or relative
+   * @param metric - The metric of since
+   * @param value - The value of since
+   */
+
+  constructor(
+    public relative: "absolute" | "relative",
+    public metric: "blockNumber" | "epoch" | "timestamp",
+    public value: Num,
+  ) {
+    super();
+  }
+
+  /**
+   * Clone a Since.
+   *
+   * @returns A cloned Since instance.
+   *
+   * @example
+   * ```typescript
+   * const since1 = since0.clone();
+   * ```
+   */
+  clone(): Since {
+    return new Since(this.relative, this.metric, this.value);
+  }
+
+  /**
+   * Creates a Since instance from a SinceLike object.
+   *
+   * @param since - A SinceLike object or an instance of Since.
+   * @returns A Since instance.
+   *
+   * @example
+   * ```typescript
+   * const since = Since.from("0x1234567812345678");
+   * ```
+   */
+  static from(since: SinceLike): Since {
+    if (since instanceof Since) {
+      return since;
+    }
+
+    if (typeof since === "object" && "relative" in since) {
+      return new Since(since.relative, since.metric, numFrom(since.value));
+    }
+
+    return Since.fromNum(since);
+  }
+
+  /**
+   * Converts the Since instance to num.
+   *
+   * @returns A num
+   *
+   * @example
+   * ```typescript
+   * const num = since.toNum();
+   * ```
+   */
+
+  toNum(): Num {
+    return (
+      this.value |
+      (this.relative === "absolute" ? Zero : numFrom("0x8000000000000000")) |
+      {
+        blockNumber: numFrom("0x0000000000000000"),
+        epoch: numFrom("0x2000000000000000"),
+        timestamp: numFrom("0x4000000000000000"),
+      }[this.metric]
+    );
+  }
+
+  /**
+   * Creates a Since instance from a num-like value.
+   *
+   * @param numLike - The num-like value to convert.
+   * @returns A Since instance.
+   *
+   * @example
+   * ```typescript
+   * const since = Since.fromNum("0x0");
+   * ```
+   */
+
+  static fromNum(numLike: NumLike): Since {
+    const num = numFrom(numLike);
+
+    const relative = num >> numFrom(63) === Zero ? "absolute" : "relative";
+    const metric = (["blockNumber", "epoch", "timestamp"] as Since["metric"][])[
+      Number((num >> numFrom(61)) & numFrom(3))
+    ];
+    const value = num & numFrom("0x00ffffffffffffff");
+
+    return new Since(relative, metric, value);
+  }
+}
+
+/**
+ * @public
+ */
+export type CellInputLike = (
+  | {
+      previousOutput: OutPointLike;
+    }
+  | { outPoint: OutPointLike }
+) & {
+  since?: SinceLike | NumLike | null;
   cellOutput?: CellOutputLike | null;
   outputData?: HexLike | null;
 };
-export class CellInput {
+/**
+ * @public
+ */
+@mol.codec(
+  mol
+    .struct({
+      since: Since,
+      previousOutput: OutPoint,
+    })
+    .mapIn((encodable: CellInputLike) => CellInput.from(encodable)),
+)
+export class CellInput extends mol.Entity.Base<CellInputLike, CellInput>() {
   /**
    * Creates an instance of CellInput.
    *
@@ -410,25 +846,8 @@ export class CellInput {
     public since: Num,
     public cellOutput?: CellOutput,
     public outputData?: Hex,
-  ) {}
-
-  /**
-   * Clone a CellInput.
-   *
-   * @returns A cloned CellInput instance.
-   *
-   * @example
-   * ```typescript
-   * const cellInput1 = cellInput0.clone();
-   * ```
-   */
-  clone(): CellInput {
-    return new CellInput(
-      this.previousOutput.clone(),
-      this.since,
-      this.cellOutput?.clone(),
-      this.outputData,
-    );
+  ) {
+    super();
   }
 
   /**
@@ -451,21 +870,40 @@ export class CellInput {
     }
 
     return new CellInput(
-      OutPoint.from(cellInput.previousOutput),
-      numFrom(cellInput.since ?? 0),
+      OutPoint.from(
+        "previousOutput" in cellInput
+          ? cellInput.previousOutput
+          : cellInput.outPoint,
+      ),
+      Since.from(cellInput.since ?? 0).toNum(),
       apply(CellOutput.from, cellInput.cellOutput),
       apply(hexFrom, cellInput.outputData),
     );
   }
 
+  async getCell(client: Client): Promise<Cell> {
+    await this.completeExtraInfos(client);
+    if (!this.cellOutput || !this.outputData) {
+      throw new Error("Unable to complete input");
+    }
+
+    return Cell.from({
+      outPoint: this.previousOutput,
+      cellOutput: this.cellOutput,
+      outputData: this.outputData,
+    });
+  }
+
   /**
-   * Complete extra infos in the input. Like the output of the out point.
+   * Complete extra infos in the input. Including
+   * - Previous cell output
+   * - Previous cell data
    * The instance will be modified.
    *
    * @returns true if succeed.
    * @example
    * ```typescript
-   * await cellInput.completeExtraInfos();
+   * await cellInput.completeExtraInfos(client);
    * ```
    */
   async completeExtraInfos(client: Client): Promise<void> {
@@ -483,63 +921,52 @@ export class CellInput {
   }
 
   /**
-   * Converts the CellInput instance to molecule data format.
-   *
-   * @returns An object representing the cell input in molecule data format.
+   * The extra capacity created when consume this input.
+   * This is usually NervosDAO interest, see https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md.
+   * And it can also be miners' income. (But this is not implemented yet)
    */
-
-  _toMolData() {
-    return {
-      previousOutput: this.previousOutput._toMolData(),
-      since: numToBytes(this.since, 8),
-    };
+  async getExtraCapacity(client: Client): Promise<Num> {
+    return (await this.getCell(client)).getDaoProfit(client);
   }
 
   /**
-   * Converts the CellInput instance to bytes.
+   * Clone a CellInput.
    *
-   * @returns A Uint8Array containing the cell input bytes.
-   *
-   * @example
-   * ```typescript
-   * const cellInputBytes = cellInput.toBytes();
-   * ```
-   */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeCellInput(this._toMolData()));
-  }
-
-  /**
-   * Creates a CellInput instance from a byte-like value or molecule CellInput.
-   *
-   * @param bytes - The byte-like value or molecule CellInput to convert.
-   * @returns A CellInput instance.
+   * @returns A cloned CellInput instance.
    *
    * @example
    * ```typescript
-   * const cellInput = CellInput.fromBytes(new Uint8Array([/* cell input bytes *\/]));
+   * const cellInput1 = cellInput0.clone();
    * ```
    */
-
-  static fromBytes(bytes: BytesLike | mol.CellInput): CellInput {
-    const view =
-      bytes instanceof mol.CellInput
-        ? bytes
-        : new mol.CellInput(bytesFrom(bytes));
-
+  clone(): CellInput {
     return new CellInput(
-      OutPoint.fromBytes(view.getPreviousOutput()),
-      numFromBytes(view.getSince().raw()),
+      this.previousOutput.clone(),
+      this.since,
+      this.cellOutput?.clone(),
+      this.outputData,
     );
   }
 }
+export const CellInputVec = mol.vector(CellInput);
 
+/**
+ * @public
+ */
 export type CellDepLike = {
   outPoint: OutPointLike;
   depType: DepTypeLike;
 };
-export class CellDep {
+/**
+ * @public
+ */
+@mol.codec(
+  mol.struct({
+    outPoint: OutPoint,
+    depType: DepTypeCodec,
+  }),
+)
+export class CellDep extends mol.Entity.Base<CellDepLike, CellDep>() {
   /**
    * Creates an instance of CellDep.
    *
@@ -550,21 +977,8 @@ export class CellDep {
   constructor(
     public outPoint: OutPoint,
     public depType: DepType,
-  ) {}
-
-  /**
-   * Clone a CellDep.
-   *
-   * @returns A cloned CellDep instance.
-   *
-   * @example
-   * ```typescript
-   * const cellDep1 = cellDep0.clone();
-   * ```
-   */
-
-  clone(): CellDep {
-    return new CellDep(this.outPoint.clone(), this.depType);
+  ) {
+    super();
   }
 
   /**
@@ -594,80 +1008,43 @@ export class CellDep {
   }
 
   /**
-   * Converts the CellDep instance to molecule data format.
+   * Clone a CellDep.
    *
-   * @returns An object representing the cell dependency in molecule data format.
-   */
-
-  _toMolData() {
-    return {
-      outPoint: this.outPoint._toMolData(),
-      depType: depTypeToBytes(this.depType),
-    };
-  }
-
-  /**
-   * Converts the CellDep instance to bytes.
-   *
-   * @returns A Uint8Array containing the cell dependency bytes.
+   * @returns A cloned CellDep instance.
    *
    * @example
    * ```typescript
-   * const cellDepBytes = cellDep.toBytes();
+   * const cellDep1 = cellDep0.clone();
    * ```
    */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeCellDep(this._toMolData()));
-  }
-
-  /**
-   * Creates a CellDep instance from a byte-like value or molecule CellDep.
-   *
-   * @param bytes - The byte-like value or molecule CellDep to convert.
-   * @returns A CellDep instance.
-   *
-   * @example
-   * ```typescript
-   * const cellDep = CellDep.fromBytes(new Uint8Array([/* cell dep bytes *\/]));
-   * ```
-   */
-
-  fromBytes(bytes: BytesLike | mol.CellDep): CellDep {
-    const view =
-      bytes instanceof mol.CellDep ? bytes : new mol.CellDep(bytesFrom(bytes));
-
-    return new CellDep(
-      OutPoint.fromBytes(view.getOutPoint()),
-      depTypeFromBytes([view.getDepType()]),
-    );
-  }
-
-  /**
-   * Compares the current CellDep instance with another CellDepLike object for equality.
-   *
-   * @param val - The CellDepLike object to compare with.
-   * @returns True if the cell deps are equal, otherwise false.
-   *
-   * @example
-   * ```typescript
-   * const isEqual = cellDep.eq(anotherCellDep);
-   * ```
-   */
-  eq(val: CellDepLike): boolean {
-    const cellDep = CellDep.from(val);
-    return (
-      this.outPoint.eq(cellDep.outPoint) && this.depType === cellDep.depType
-    );
+  clone(): CellDep {
+    return new CellDep(this.outPoint.clone(), this.depType);
   }
 }
+export const CellDepVec = mol.vector(CellDep);
 
+/**
+ * @public
+ */
 export type WitnessArgsLike = {
   lock?: HexLike | null;
   inputType?: HexLike | null;
   outputType?: HexLike | null;
 };
-export class WitnessArgs {
+/**
+ * @public
+ */
+@mol.codec(
+  mol.table({
+    lock: mol.BytesOpt,
+    inputType: mol.BytesOpt,
+    outputType: mol.BytesOpt,
+  }),
+)
+export class WitnessArgs extends mol.Entity.Base<
+  WitnessArgsLike,
+  WitnessArgs
+>() {
   /**
    * Creates an instance of WitnessArgs.
    *
@@ -680,7 +1057,9 @@ export class WitnessArgs {
     public lock?: Hex,
     public inputType?: Hex,
     public outputType?: Hex,
-  ) {}
+  ) {
+    super();
+  }
 
   /**
    * Creates a WitnessArgs instance from a WitnessArgsLike object.
@@ -709,71 +1088,30 @@ export class WitnessArgs {
       apply(hexFrom, witnessArgs.outputType),
     );
   }
-
-  /**
-   * Converts the WitnessArgs instance to molecule data format.
-   *
-   * @returns An object representing the witness arguments in molecule data format.
-   */
-
-  _toMolData() {
-    return {
-      lock: apply(bytesFrom, this.lock),
-      inputType: apply(bytesFrom, this.inputType),
-      outputType: apply(bytesFrom, this.outputType),
-    };
-  }
-
-  /**
-   * Converts the WitnessArgs instance to bytes.
-   *
-   * @returns A Uint8Array containing the witness arguments bytes.
-   *
-   * @example
-   * ```typescript
-   * const witnessArgsBytes = witnessArgs.toBytes();
-   * ```
-   */
-
-  toBytes(): Bytes {
-    return bytesFrom(mol.SerializeWitnessArgs(this._toMolData()));
-  }
-
-  /**
-   * Creates a WitnessArgs instance from a byte-like value or molecule WitnessArgs.
-   *
-   * @param bytes - The byte-like value or molecule WitnessArgs to convert.
-   * @returns A WitnessArgs instance.
-   *
-   * @example
-   * ```typescript
-   * const witnessArgs = WitnessArgs.fromBytes(new Uint8Array([/* witness args bytes *\/]));
-   * ```
-   */
-
-  static fromBytes(bytes: BytesLike | mol.WitnessArgs): WitnessArgs {
-    const view =
-      bytes instanceof mol.WitnessArgs
-        ? bytes
-        : new mol.WitnessArgs(bytesFrom(bytes));
-
-    return new WitnessArgs(
-      apply(hexFrom, mol.molOptional(view.getLock())?.raw()),
-      apply(hexFrom, mol.molOptional(view.getInputType())?.raw()),
-      apply(hexFrom, mol.molOptional(view.getOutputType())?.raw()),
-    );
-  }
 }
 
-export function udtBalanceFrom(dataLike: BytesLike) {
+/**
+ * Convert a bytes to a num.
+ *
+ * @public
+ */
+export function udtBalanceFrom(dataLike: BytesLike): Num {
   const data = bytesFrom(dataLike).slice(0, 16);
-  if (data.length !== 16) {
-    throw new Error("Invalid UDT cell data");
-  }
-
-  return numFromBytes(data);
+  return data.length === 0 ? Zero : numFromBytes(data);
 }
 
+export const RawTransaction = mol.table({
+  version: mol.Uint32,
+  cellDeps: CellDepVec,
+  headerDeps: mol.Byte32Vec,
+  inputs: CellInputVec,
+  outputs: CellOutputVec,
+  outputsData: mol.BytesVec,
+});
+
+/**
+ * @public
+ */
 export type TransactionLike = {
   version?: NumLike | null;
   cellDeps?: CellDepLike[] | null;
@@ -786,7 +1124,28 @@ export type TransactionLike = {
   outputsData?: HexLike[] | null;
   witnesses?: HexLike[] | null;
 };
-export class Transaction {
+/**
+ * @public
+ */
+@mol.codec(
+  mol
+    .table({
+      raw: RawTransaction,
+      witnesses: mol.BytesVec,
+    })
+    .mapIn((txLike: TransactionLike) => {
+      const tx = Transaction.from(txLike);
+      return {
+        raw: tx,
+        witnesses: tx.witnesses,
+      };
+    })
+    .mapOut((tx) => Transaction.from({ ...tx.raw, witnesses: tx.witnesses })),
+)
+export class Transaction extends mol.Entity.Base<
+  TransactionLike,
+  Transaction
+>() {
   /**
    * Creates an instance of Transaction.
    *
@@ -807,7 +1166,9 @@ export class Transaction {
     public outputs: CellOutput[],
     public outputsData: Hex[],
     public witnesses: Hex[],
-  ) {}
+  ) {
+    super();
+  }
 
   /**
    * Creates a default Transaction instance with empty fields.
@@ -825,6 +1186,9 @@ export class Transaction {
 
   /**
    * Copy every properties from another transaction.
+   * This method replaces all properties of the current transaction with those from the provided transaction.
+   *
+   * @param txLike - The transaction-like object to copy properties from.
    *
    * @example
    * ```typescript
@@ -843,24 +1207,51 @@ export class Transaction {
   }
 
   /**
-   * Clone a Transaction.
+   * Creates a deep copy of the transaction.
+   * This method creates a new Transaction instance with all nested objects cloned,
+   * ensuring that modifications to the cloned transaction do not affect the original.
    *
-   * @returns A cloned instance
+   * @returns A new Transaction instance that is a deep copy of the current transaction.
    *
    * @example
    * ```typescript
-   * const tx1 = tx0.clone();
+   * const originalTx = Transaction.from({
+   *   version: 0,
+   *   inputs: [{ previousOutput: { txHash: "0x...", index: 0 } }],
+   *   outputs: [{ capacity: 1000n, lock: lockScript }],
+   *   outputsData: ["0x"],
+   *   witnesses: ["0x"]
+   * });
+   *
+   * const clonedTx = originalTx.clone();
+   *
+   * // Modifications to clonedTx won't affect originalTx
+   * clonedTx.addOutput({ capacity: 2000n, lock: anotherLockScript });
+   * console.log(originalTx.outputs.length); // Still 1
+   * console.log(clonedTx.outputs.length);   // Now 2
    * ```
+   *
+   * @remarks
+   * The clone operation performs deep copying for:
+   * - Cell dependencies (cellDeps) - each CellDep is cloned
+   * - Inputs - each CellInput is cloned
+   * - Outputs - each CellOutput is cloned
+   *
+   * The following are shallow copied (references to immutable data):
+   * - Header dependencies (headerDeps) - Hex strings are immutable
+   * - Output data (outputsData) - Hex strings are immutable
+   * - Witnesses - Hex strings are immutable
+   * - Version - bigint is immutable
    */
   clone(): Transaction {
     return new Transaction(
-      0n,
+      this.version,
       this.cellDeps.map((c) => c.clone()),
-      [...this.headerDeps],
+      this.headerDeps.map((h) => h),
       this.inputs.map((i) => i.clone()),
       this.outputs.map((o) => o.clone()),
-      [...this.outputsData],
-      [...this.witnesses],
+      this.outputsData.map((o) => o),
+      this.witnesses.map((w) => w),
     );
   }
 
@@ -889,19 +1280,9 @@ export class Transaction {
       return tx;
     }
     const outputs =
-      tx.outputs?.map((output, i) => {
-        const o = CellOutput.from({
-          ...output,
-          capacity: output.capacity ?? 0,
-        });
-        if (o.capacity === Zero) {
-          o.capacity = fixedPointFrom(
-            o.occupiedSize +
-              (apply(bytesFrom, tx.outputsData?.[i])?.length ?? 0),
-          );
-        }
-        return o;
-      }) ?? [];
+      tx.outputs?.map((output, i) =>
+        CellOutput.from(output, tx.outputsData?.[i] ?? []),
+      ) ?? [];
     const outputsData = outputs.map((_, i) =>
       hexFrom(tx.outputsData?.[i] ?? "0x"),
     );
@@ -936,7 +1317,9 @@ export class Transaction {
    * ```
    */
 
-  static fromLumosSkeleton(skeleton: TransactionSkeletonType): Transaction {
+  static fromLumosSkeleton(
+    skeleton: LumosTransactionSkeletonType,
+  ): Transaction {
     return Transaction.from({
       version: 0n,
       cellDeps: skeleton.cellDeps.toArray(),
@@ -959,11 +1342,17 @@ export class Transaction {
     });
   }
 
+  /**
+   * @deprecated
+   * Use ccc.stringify instead.
+   * stringify the tx to JSON string.
+   */
   stringify(): string {
     return JSON.stringify(this, (_, value) => {
       if (typeof value === "bigint") {
         return numToHex(value);
       }
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return value;
     });
   }
@@ -979,46 +1368,12 @@ export class Transaction {
    * ```
    */
   rawToBytes(): Bytes {
-    return bytesFrom(
-      mol.SerializeRawTransaction({
-        version: numToBytes(this.version, 4),
-        cellDeps: this.cellDeps.map((d) => d._toMolData()),
-        headerDeps: this.headerDeps.map((header) => bytesFrom(header)),
-        inputs: this.inputs.map((i) => i._toMolData()),
-        outputs: this.outputs.map((o) => o._toMolData()),
-        outputsData: this.outputsData.map((header) => bytesFrom(header)),
-      }),
-    );
+    return RawTransaction.encode(this);
   }
 
   /**
-   * Converts the whole transaction data to bytes.
-   *
-   * @returns A Uint8Array containing the full transaction bytes.
-   *
-   * @example
-   * ```typescript
-   * const txBytes = transaction.toBytes();
-   * ```
-   */
-  toBytes(): Bytes {
-    return bytesFrom(
-      mol.SerializeTransaction({
-        raw: {
-          version: numToBytes(this.version, 4),
-          cellDeps: this.cellDeps.map((d) => d._toMolData()),
-          headerDeps: this.headerDeps.map((header) => bytesFrom(header)),
-          inputs: this.inputs.map((i) => i._toMolData()),
-          outputs: this.outputs.map((o) => o._toMolData()),
-          outputsData: this.outputsData.map((header) => bytesFrom(header)),
-        },
-        witnesses: this.witnesses.map((witness) => bytesFrom(witness)),
-      }),
-    );
-  }
-
-  /**
-   * Calculates the hash of the transaction.
+   * Calculates the hash of the transaction without witnesses. This is the transaction hash in the usual sense.
+   * To calculate the hash of the whole transaction including the witnesses, use transaction.hashFull() instead.
    *
    * @returns The hash of the transaction.
    *
@@ -1027,9 +1382,22 @@ export class Transaction {
    * const txHash = transaction.hash();
    * ```
    */
-
-  hash() {
+  hash(): Hex {
     return hashCkb(this.rawToBytes());
+  }
+
+  /**
+   * Calculates the hash of the transaction with witnesses.
+   *
+   * @returns The hash of the transaction with witnesses.
+   *
+   * @example
+   * ```typescript
+   * const txFullHash = transaction.hashFull();
+   * ```
+   */
+  hashFull(): Hex {
+    return hashCkb(this.toBytes());
   }
 
   /**
@@ -1070,22 +1438,18 @@ export class Transaction {
   async getSignHashInfo(
     scriptLike: ScriptLike,
     client: Client,
+    hasher: Hasher = new HasherCkb(),
   ): Promise<{ message: Hex; position: number } | undefined> {
     const script = Script.from(scriptLike);
     let position = -1;
-    const hasher = new Hasher();
     hasher.update(this.hash());
 
     for (let i = 0; i < this.witnesses.length; i += 1) {
       const input = this.inputs[i];
       if (input) {
-        await input.completeExtraInfos(client);
+        const { cellOutput } = await input.getCell(client);
 
-        if (!input.cellOutput) {
-          throw new Error("Unable to complete input");
-        }
-
-        if (!script.eq(input.cellOutput.lock)) {
+        if (!script.eq(cellOutput.lock)) {
           continue;
         }
 
@@ -1112,11 +1476,41 @@ export class Transaction {
   }
 
   /**
+   * Find the first occurrence of a input with the specified lock id
+   *
+   * @param scriptIdLike - The script associated with the transaction, represented as a ScriptLike object without args.
+   * @param client - The client for complete extra infos in the transaction.
+   * @returns A promise that resolves to the found index
+   *
+   * @example
+   * ```typescript
+   * const index = await tx.findInputIndexByLockId(scriptIdLike, client);
+   * ```
+   */
+  async findInputIndexByLockId(
+    scriptIdLike: Pick<ScriptLike, "codeHash" | "hashType">,
+    client: Client,
+  ): Promise<number | undefined> {
+    const script = Script.from({ ...scriptIdLike, args: "0x" });
+
+    for (let i = 0; i < this.inputs.length; i += 1) {
+      const { cellOutput } = await this.inputs[i].getCell(client);
+
+      if (
+        script.codeHash === cellOutput.lock.codeHash &&
+        script.hashType === cellOutput.lock.hashType
+      ) {
+        return i;
+      }
+    }
+  }
+
+  /**
    * Find the first occurrence of a input with the specified lock
    *
    * @param scriptLike - The script associated with the transaction, represented as a ScriptLike object.
    * @param client - The client for complete extra infos in the transaction.
-   * @returns A promise that resolves to the prepared transaction
+   * @returns A promise that resolves to the found index, or undefined if no matching input is found.
    *
    * @example
    * ```typescript
@@ -1130,13 +1524,9 @@ export class Transaction {
     const script = Script.from(scriptLike);
 
     for (let i = 0; i < this.inputs.length; i += 1) {
-      const input = this.inputs[i];
-      await input.completeExtraInfos(client);
-      if (!input.cellOutput) {
-        throw new Error("Unable to complete input");
-      }
+      const { cellOutput } = await this.inputs[i].getCell(client);
 
-      if (script.eq(input.cellOutput.lock)) {
+      if (script.eq(cellOutput.lock)) {
         return i;
       }
     }
@@ -1147,7 +1537,7 @@ export class Transaction {
    *
    * @param scriptLike - The script associated with the transaction, represented as a ScriptLike object.
    * @param client - The client for complete extra infos in the transaction.
-   * @returns A promise that resolves to the prepared transaction
+   * @returns A promise that resolves to the found index, or undefined if no matching input is found.
    *
    * @example
    * ```typescript
@@ -1161,13 +1551,9 @@ export class Transaction {
     const script = Script.from(scriptLike);
 
     for (let i = this.inputs.length - 1; i >= 0; i -= 1) {
-      const input = this.inputs[i];
-      await input.completeExtraInfos(client);
-      if (!input.cellOutput) {
-        throw new Error("Unable to complete input");
-      }
+      const { cellOutput } = await this.inputs[i].getCell(client);
 
-      if (script.eq(input.cellOutput.lock)) {
+      if (script.eq(cellOutput.lock)) {
         return i;
       }
     }
@@ -1183,8 +1569,8 @@ export class Transaction {
    * tx.addCellDeps(cellDep);
    * ```
    */
-  addCellDeps(...cellDepsLike: (CellDepLike | CellDepLike[])[]): void {
-    cellDepsLike.flat().forEach((cellDepLike) => {
+  addCellDeps(...cellDepLikes: (CellDepLike | CellDepLike[])[]): void {
+    cellDepLikes.flat().forEach((cellDepLike) => {
       const cellDep = CellDep.from(cellDepLike);
       if (this.cellDeps.some((c) => c.eq(cellDep))) {
         return;
@@ -1195,10 +1581,31 @@ export class Transaction {
   }
 
   /**
+   * Add cell deps at the start if they are not existed
+   *
+   * @param cellDepLikes - The cell deps to add
+   *
+   * @example
+   * ```typescript
+   * tx.addCellDepsAtBegin(cellDep);
+   * ```
+   */
+  addCellDepsAtStart(...cellDepLikes: (CellDepLike | CellDepLike[])[]): void {
+    cellDepLikes.flat().forEach((cellDepLike) => {
+      const cellDep = CellDep.from(cellDepLike);
+      if (this.cellDeps.some((c) => c.eq(cellDep))) {
+        return;
+      }
+
+      this.cellDeps.unshift(cellDep);
+    });
+  }
+
+  /**
    * Add cell dep from infos if they are not existed
    *
    * @param client - A client for searching cell deps
-   * @param cellDepLikes - The cell dep infos to add
+   * @param cellDepInfoLikes - The cell dep infos to add
    *
    * @example
    * ```typescript
@@ -1207,9 +1614,9 @@ export class Transaction {
    */
   async addCellDepInfos(
     client: Client,
-    ...cellDepInfosLike: (CellDepInfoLike | CellDepInfoLike[])[]
+    ...cellDepInfoLikes: (CellDepInfoLike | CellDepInfoLike[])[]
   ): Promise<void> {
-    this.addCellDeps(await client.getCellDeps(...cellDepInfosLike));
+    this.addCellDeps(await client.getCellDeps(...cellDepInfoLikes));
   }
 
   /**
@@ -1243,11 +1650,11 @@ export class Transaction {
    * Set output data at index.
    *
    * @param index - The index of the output data.
-   * @param witness - The data to set.
+   * @param data - The data to set.
    *
    * @example
    * ```typescript
-   * await tx.setOutputData(0, "0x00");
+   * tx.setOutputDataAt(0, "0x00");
    * ```
    */
   setOutputDataAt(index: number, data: HexLike): void {
@@ -1264,32 +1671,134 @@ export class Transaction {
   }
 
   /**
-   * Add output
+   * get input
    *
-   * @param output - The cell output to add
-   * @param data - optional output data
+   * @param index - The cell input index
    *
    * @example
    * ```typescript
-   * await tx.addOutput(cellOutput, "0xabcd");
+   * await tx.getInput(0);
    * ```
    */
-  addOutput(
-    outputLike: Omit<CellOutputLike, "capacity"> &
-      Partial<Pick<CellOutputLike, "capacity">>,
-    outputData: HexLike = "0x",
-  ): void {
-    const output = CellOutput.from({
-      ...outputLike,
-      capacity: outputLike.capacity ?? 0,
-    });
-    if (output.capacity === Zero) {
-      output.capacity = fixedPointFrom(
-        output.occupiedSize + bytesFrom(outputData).length,
-      );
+  getInput(index: NumLike): CellInput | undefined {
+    return this.inputs[Number(numFrom(index))];
+  }
+  /**
+   * add input
+   *
+   * @param inputLike - The cell input.
+   *
+   * @example
+   * ```typescript
+   * await tx.addInput({ });
+   * ```
+   */
+  addInput(inputLike: CellInputLike): number {
+    if (this.witnesses.length > this.inputs.length) {
+      this.witnesses.splice(this.inputs.length, 0, "0x");
     }
-    const i = this.outputs.push(output) - 1;
-    this.setOutputDataAt(i, outputData);
+
+    return this.inputs.push(CellInput.from(inputLike));
+  }
+
+  /**
+   * get output
+   *
+   * @param index - The cell output index
+   *
+   * @example
+   * ```typescript
+   * await tx.getOutput(0);
+   * ```
+   */
+  getOutput(index: NumLike): CellAny | undefined {
+    const i = Number(numFrom(index));
+    if (i >= this.outputs.length) {
+      return;
+    }
+    return CellAny.from({
+      cellOutput: this.outputs[i],
+      outputData: this.outputsData[i] ?? "0x",
+    });
+  }
+
+  /**
+   * Provides an iterable over the transaction's output cells.
+   *
+   * This getter is a convenient way to iterate through all the output cells (`CellAny`)
+   * of the transaction, combining the `outputs` and `outputsData` arrays.
+   * It can be used with `for...of` loops or other iterable-consuming patterns.
+   *
+   * @public
+   * @category Getter
+   * @returns An `Iterable<CellAny>` that yields each output cell of the transaction.
+   *
+   * @example
+   * ```typescript
+   * for (const cell of tx.outputCells) {
+   *   console.log(`Output cell capacity: ${cell.cellOutput.capacity}`);
+   * }
+   * ```
+   */
+  get outputCells(): Iterable<CellAny> {
+    const { outputs, outputsData } = this;
+
+    function* generator(): Generator<CellAny> {
+      for (let i = 0; i < outputs.length; i++) {
+        yield CellAny.from({
+          cellOutput: outputs[i],
+          outputData: outputsData[i] ?? "0x",
+        });
+      }
+    }
+
+    return generator();
+  }
+
+  /**
+   * Adds an output to the transaction.
+   *
+   * This method supports two overloads for adding an output:
+   * 1. By providing a `CellAnyLike` object, which encapsulates both `cellOutput` and `outputData`.
+   * 2. By providing a `CellOutputLike` object and an optional `outputData`.
+   *
+   * @param cellOrOutputLike - A cell-like object containing both cell output and data, or just the cell output object.
+   * @param outputDataLike - Optional data for the cell output. Defaults to "0x" if not provided in the first argument.
+   * @returns The new number of outputs in the transaction.
+   *
+   * @example
+   * ```typescript
+   * // 1. Add an output using a CellAnyLike object
+   * const newLength1 = tx.addOutput({
+   *   cellOutput: { lock: recipientLock }, // capacity is calculated automatically
+   *   outputData: "0x1234",
+   * });
+   *
+   * // 2. Add an output using CellOutputLike and data separately
+   * const newLength2 = tx.addOutput({ lock: recipientLock }, "0xabcd");
+   * ```
+   */
+  addOutput(cellLike: CellAnyLike): number;
+  addOutput(
+    outputLike: CellOutputLike,
+    outputDataLike?: HexLike | null,
+  ): number;
+  addOutput(
+    cellOrOutputLike: CellAnyLike | CellOutputLike,
+    outputDataLike?: HexLike | null,
+  ): number {
+    const cell =
+      "cellOutput" in cellOrOutputLike
+        ? CellAny.from(cellOrOutputLike)
+        : CellAny.from({
+            cellOutput: cellOrOutputLike,
+            outputData: outputDataLike,
+          });
+
+    const len = this.outputs.push(cell.cellOutput);
+    this.setOutputDataAt(len - 1, cell.outputData);
+
+    return len;
   }
 
   /**
@@ -1322,6 +1831,21 @@ export class Transaction {
    * ```
    */
   setWitnessArgsAt(index: number, witness: WitnessArgs): void {
+    this.setWitnessAt(index, witness.toBytes());
+  }
+
+  /**
+   * Set witness at index
+   *
+   * @param index - The index of the witness.
+   * @param witness - The witness to set.
+   *
+   * @example
+   * ```typescript
+   * await tx.setWitnessAt(0, witness);
+   * ```
+   */
+  setWitnessAt(index: number, witness: HexLike): void {
     if (this.witnesses.length < index) {
       this.witnesses.push(
         ...Array.from(
@@ -1331,7 +1855,7 @@ export class Transaction {
       );
     }
 
-    this.witnesses[index] = hexFrom(witness.toBytes());
+    this.witnesses[index] = hexFrom(witness);
   }
 
   /**
@@ -1362,17 +1886,28 @@ export class Transaction {
     this.setWitnessArgsAt(position, witness);
   }
 
-  async getInputsCapacity(client: Client): Promise<Num> {
+  async getInputsCapacityExtra(client: Client): Promise<Num> {
     return reduceAsync(
       this.inputs,
-      async (acc, input) => {
-        await input.completeExtraInfos(client);
-        if (!input.cellOutput) {
-          throw new Error("Unable to complete input");
-        }
-        return acc + input.cellOutput.capacity;
-      },
+      async (acc, input) => acc + (await input.getExtraCapacity(client)),
       numFrom(0),
+    );
+  }
+
+  // This also includes extra amount
+  async getInputsCapacity(client: Client): Promise<Num> {
+    return (
+      (await reduceAsync(
+        this.inputs,
+        async (acc, input) => {
+          const {
+            cellOutput: { capacity },
+          } = await input.getCell(client);
+
+          return acc + capacity;
+        },
+        numFrom(0),
+      )) + (await this.getInputsCapacityExtra(client))
     );
   }
 
@@ -1387,15 +1922,12 @@ export class Transaction {
     return reduceAsync(
       this.inputs,
       async (acc, input) => {
-        await input.completeExtraInfos(client);
-        if (!input.cellOutput || !input.outputData) {
-          throw new Error("Unable to complete input");
-        }
-        if (!input.cellOutput.type?.eq(type)) {
+        const { cellOutput, outputData } = await input.getCell(client);
+        if (!cellOutput.type?.eq(type)) {
           return;
         }
 
-        return acc + udtBalanceFrom(input.outputData);
+        return acc + udtBalanceFrom(outputData);
       },
       numFrom(0),
     );
@@ -1425,46 +1957,34 @@ export class Transaction {
     addedCount: number;
     accumulated?: T;
   }> {
-    const scripts = (await from.getAddressObjs()).map(({ script }) => script);
     const collectedCells = [];
-    let acc: T = init;
 
-    for (const script of scripts) {
-      for await (const cell of from.client.findCellsByCollectableSearchKey({
-        script,
-        scriptType: "lock",
-        filter,
-        scriptSearchMode: "exact",
-        withData: true,
-      })) {
-        if (
-          this.inputs.some(({ previousOutput }) =>
-            previousOutput.eq(cell.outPoint),
-          )
-        ) {
-          continue;
-        }
-        const i = collectedCells.push(cell);
-        const next: T | undefined = await Promise.resolve(
-          accumulator(acc, cell, i - 1, collectedCells),
-        );
-        if (next === undefined) {
-          this.inputs.push(
-            ...collectedCells.map(({ outPoint, outputData, cellOutput }) =>
-              CellInput.from({
-                previousOutput: outPoint,
-                since: 0,
-                outputData,
-                cellOutput,
-              }),
-            ),
-          );
-          return {
-            addedCount: collectedCells.length,
-          };
-        }
-        acc = next;
+    let acc: T = init;
+    let fulfilled = false;
+    for await (const cell of from.findCells(filter, true)) {
+      if (
+        this.inputs.some(({ previousOutput }) =>
+          previousOutput.eq(cell.outPoint),
+        )
+      ) {
+        continue;
       }
+      const i = collectedCells.push(cell);
+      const next = await Promise.resolve(
+        accumulator(acc, cell, i - 1, collectedCells),
+      );
+      if (next === undefined) {
+        fulfilled = true;
+        break;
+      }
+      acc = next;
+    }
+
+    collectedCells.forEach((cell) => this.addInput(cell));
+    if (fulfilled) {
+      return {
+        addedCount: collectedCells.length,
+      };
     }
 
     return {
@@ -1478,10 +1998,10 @@ export class Transaction {
     capacityTweak?: NumLike,
     filter?: ClientCollectableSearchKeyFilterLike,
   ): Promise<number> {
-    const exceptedCapacity =
+    const expectedCapacity =
       this.getOutputsCapacity() + numFrom(capacityTweak ?? 0);
     const inputsCapacity = await this.getInputsCapacity(from.client);
-    if (inputsCapacity >= exceptedCapacity) {
+    if (inputsCapacity >= expectedCapacity) {
       return 0;
     }
 
@@ -1493,7 +2013,7 @@ export class Transaction {
       },
       (acc, { cellOutput: { capacity } }) => {
         const sum = acc + capacity;
-        return sum >= exceptedCapacity ? undefined : sum;
+        return sum >= expectedCapacity ? undefined : sum;
       },
       inputsCapacity,
     );
@@ -1502,8 +2022,8 @@ export class Transaction {
       return addedCount;
     }
 
-    throw new Error(
-      `Insufficient CKB, need ${fixedPointToString(exceptedCapacity - accumulated)} extra CKB`,
+    throw new ErrorTransactionInsufficientCapacity(
+      expectedCapacity - accumulated,
     );
   }
 
@@ -1524,10 +2044,45 @@ export class Transaction {
     return addedCount;
   }
 
-  async completeInputsByUdt(from: Signer, type: ScriptLike): Promise<number> {
-    const exceptedBalance = this.getOutputsUdtBalance(type);
-    const inputsBalance = await this.getInputsUdtBalance(from.client, type);
-    if (inputsBalance >= exceptedBalance) {
+  /**
+   * Complete inputs by UDT balance
+   *
+   * This method succeeds only if enough balance is collected.
+   *
+   * It will try to collect at least two inputs, even when the first input already contains enough balance, to avoid extra occupation fees introduced by the change cell. An edge case: If the first cell has the same amount as the output, a new cell is not needed.
+   * @param from - The signer to complete the inputs.
+   * @param type - The type script of the UDT.
+   * @param balanceTweak - The tweak of the balance.
+   * @returns A promise that resolves to the number of inputs added.
+   */
+  async completeInputsByUdt(
+    from: Signer,
+    type: ScriptLike,
+    balanceTweak?: NumLike,
+  ): Promise<number> {
+    const expectedBalance =
+      this.getOutputsUdtBalance(type) + numFrom(balanceTweak ?? 0);
+    if (expectedBalance === numFrom(0)) {
+      return 0;
+    }
+
+    const [inputsBalance, inputsCount] = await reduceAsync(
+      this.inputs,
+      async ([balanceAcc, countAcc], input) => {
+        const { cellOutput, outputData } = await input.getCell(from.client);
+        if (!cellOutput.type?.eq(type)) {
+          return;
+        }
+
+        return [balanceAcc + udtBalanceFrom(outputData), countAcc + 1];
+      },
+      [numFrom(0), 0],
+    );
+
+    if (
+      inputsBalance === expectedBalance ||
+      (inputsBalance >= expectedBalance && inputsCount >= 2)
+    ) {
       return 0;
     }
 
@@ -1537,100 +2092,214 @@ export class Transaction {
         script: type,
         outputDataLenRange: [16, numFrom("0xffffffff")],
       },
-      (acc, { outputData }) => {
+      (acc, { outputData }, _i, collected) => {
         const balance = udtBalanceFrom(outputData);
         const sum = acc + balance;
-        return sum >= exceptedBalance ? undefined : sum;
+        return sum === expectedBalance ||
+          (sum >= expectedBalance && inputsCount + collected.length >= 2)
+          ? undefined
+          : sum;
       },
       inputsBalance,
+    );
+
+    if (accumulated === undefined || accumulated >= expectedBalance) {
+      return addedCount;
+    }
+
+    throw new ErrorTransactionInsufficientCoin(
+      expectedBalance - accumulated,
+      type,
+    );
+  }
+
+  async completeInputsAddOne(
+    from: Signer,
+    filter?: ClientCollectableSearchKeyFilterLike,
+  ): Promise<number> {
+    const { addedCount, accumulated } = await this.completeInputs(
+      from,
+      filter ?? {
+        scriptLenRange: [0, 1],
+        outputDataLenRange: [0, 1],
+      },
+      () => undefined,
+      true,
     );
 
     if (accumulated === undefined) {
       return addedCount;
     }
 
-    throw new Error(
-      `Insufficient coin, need ${exceptedBalance - accumulated} extra coin`,
+    throw new Error(`Insufficient CKB, need at least one new cell`);
+  }
+
+  async completeInputsAtLeastOne(
+    from: Signer,
+    filter?: ClientCollectableSearchKeyFilterLike,
+  ): Promise<number> {
+    if (this.inputs.length > 0) {
+      return 0;
+    }
+
+    return this.completeInputsAddOne(from, filter);
+  }
+
+  async getFee(client: Client): Promise<Num> {
+    return (await this.getInputsCapacity(client)) - this.getOutputsCapacity();
+  }
+
+  async getFeeRate(client: Client): Promise<Num> {
+    return (
+      ((await this.getFee(client)) * numFrom(1000)) /
+      numFrom(this.toBytes().length + 4)
     );
   }
 
   estimateFee(feeRate: NumLike): Num {
     const txSize = this.toBytes().length + 4;
-    return (numFrom(txSize) * numFrom(feeRate) + numFrom(1000)) / numFrom(1000);
+    // + 999 then / 1000 to ceil the calculated fee
+    return (numFrom(txSize) * numFrom(feeRate) + numFrom(999)) / numFrom(1000);
   }
 
+  /**
+   * Completes the transaction fee by adding inputs and handling change outputs.
+   * This method automatically calculates the required fee based on the transaction size and fee rate,
+   * adds necessary inputs to cover the fee, and handles change outputs through the provided change function.
+   *
+   * @param from - The signer to complete inputs from and prepare the transaction.
+   * @param change - A function that handles change capacity. It receives the transaction and excess capacity,
+   *                 and should return the additional capacity needed (0 if change is handled successfully,
+   *                 positive number if more capacity is needed for change cell creation).
+   * @param expectedFeeRate - The expected fee rate in shannons per 1000 bytes. If not provided,
+   *                          it will be fetched from the client.
+   * @param filter - Optional filter for selecting cells when adding inputs.
+   * @param options - Optional configuration object.
+   * @param options.feeRateBlockRange - Block range for fee rate calculation when expectedFeeRate is not provided.
+   * @param options.maxFeeRate - Maximum allowed fee rate.
+   * @param options.shouldAddInputs - Whether to add inputs automatically. Defaults to true.
+   * @returns A promise that resolves to a tuple containing:
+   *          - The number of inputs added during the process
+   *          - A boolean indicating whether change outputs were created (true) or fee was paid without change (false)
+   *
+   * @throws {ErrorTransactionInsufficientCapacity} When there's not enough capacity to cover the fee.
+   * @throws {Error} When the change function doesn't properly handle the available capacity.
+   *
+   * @example
+   * ```typescript
+   * const [addedInputs, hasChange] = await tx.completeFee(
+   *   signer,
+   *   (tx, capacity) => {
+   *     if (capacity >= 61_00000000n) { // Minimum for a change cell
+   *       tx.addOutput({ capacity, lock: changeScript });
+   *       return 0;
+   *     }
+   *     return 61_00000000n; // Need more capacity for change cell
+   *   },
+   *   1000n // 1000 shannons per 1000 bytes
+   * );
+   * ```
+   */
   async completeFee(
     from: Signer,
     change: (tx: Transaction, capacity: Num) => Promise<NumLike> | NumLike,
-    feeRate: NumLike,
+    expectedFeeRate?: NumLike,
     filter?: ClientCollectableSearchKeyFilterLike,
+    options?: {
+      feeRateBlockRange?: NumLike;
+      maxFeeRate?: NumLike;
+      shouldAddInputs?: boolean;
+    },
   ): Promise<[number, boolean]> {
+    const feeRate =
+      expectedFeeRate ??
+      (await from.client.getFeeRate(options?.feeRateBlockRange, options));
+
     // Complete all inputs extra infos for cache
     await this.getInputsCapacity(from.client);
 
     let leastFee = Zero;
     let leastExtraCapacity = Zero;
+    let collected = 0;
 
+    // ===
+    // Usually, for the worst situation, three iterations are needed
+    // 1. First attempt to complete the transaction.
+    // 2. Not enough capacity for the change cell.
+    // 3. Fee increased by the change cell.
+    // ===
     while (true) {
-      const prepared = await from.prepareTransaction(this.clone());
-      const collected = await (async () => {
+      collected += await (async () => {
+        if (!(options?.shouldAddInputs ?? true)) {
+          return 0;
+        }
+
         try {
-          return await prepared.completeInputsByCapacity(
+          return await this.completeInputsByCapacity(
             from,
             leastFee + leastExtraCapacity,
             filter,
           );
         } catch (err) {
-          if (leastExtraCapacity !== Zero) {
-            throw new Error("Not enough capacity for the change cell");
+          if (
+            err instanceof ErrorTransactionInsufficientCapacity &&
+            leastExtraCapacity !== Zero
+          ) {
+            throw new ErrorTransactionInsufficientCapacity(err.amount, {
+              isForChange: true,
+            });
           }
 
           throw err;
         }
       })();
 
+      const fee = await this.getFee(from.client);
+      if (fee < leastFee + leastExtraCapacity) {
+        // Not enough capacity are collected, it should only happens when shouldAddInputs is false
+        throw new ErrorTransactionInsufficientCapacity(
+          leastFee + leastExtraCapacity - fee,
+          { isForChange: leastExtraCapacity !== Zero },
+        );
+      }
+
+      await from.prepareTransaction(this);
       if (leastFee === Zero) {
         // The initial fee is calculated based on prepared transaction
-        leastFee = prepared.estimateFee(feeRate);
+        // This should only happens during the first iteration
+        leastFee = this.estimateFee(feeRate);
       }
-      const extraCapacity =
-        (await prepared.getInputsCapacity(from.client)) -
-        prepared.getOutputsCapacity();
       // The extra capacity paid the fee without a change
-      if (extraCapacity === leastFee) {
-        this.copy(prepared);
+      // leastExtraCapacity should be 0 here, otherwise we should failed in the previous check
+      // So this only happens in the first iteration
+      if (fee === leastFee) {
         return [collected, false];
       }
 
-      let changed = prepared.clone();
-      const needed = numFrom(
-        await Promise.resolve(change(changed, extraCapacity - leastFee)),
-      );
-      // No enough extra capacity to create new cells for change
+      // Invoke the change function on a transaction multiple times may cause problems, so we clone it
+      const tx = this.clone();
+      const needed = numFrom(await Promise.resolve(change(tx, fee - leastFee)));
       if (needed > Zero) {
+        // No enough extra capacity to create new cells for change, collect inputs again
         leastExtraCapacity = needed;
         continue;
       }
 
-      if (
-        (await changed.getInputsCapacity(from.client)) -
-          changed.getOutputsCapacity() !==
-        leastFee
-      ) {
+      if ((await tx.getFee(from.client)) !== leastFee) {
         throw new Error(
           "The change function doesn't use all available capacity",
         );
       }
 
       // New change cells created, update the fee
-      await from.prepareTransaction(changed);
-      const changedFee = changed.estimateFee(feeRate);
+      await from.prepareTransaction(tx);
+      const changedFee = tx.estimateFee(feeRate);
       if (leastFee > changedFee) {
         throw new Error("The change function removed existed transaction data");
       }
       // The fee has been paid
       if (leastFee === changedFee) {
-        this.copy(changed);
+        this.copy(tx);
         return [collected, true];
       }
 
@@ -1639,11 +2308,48 @@ export class Transaction {
     }
   }
 
+  /**
+   * Completes the transaction fee by adding inputs and creating a change output with the specified lock script.
+   * This is a convenience method that automatically creates a change cell with the provided lock script
+   * when there's excess capacity after paying the transaction fee.
+   *
+   * @param from - The signer to complete inputs from and prepare the transaction.
+   * @param change - The lock script for the change output cell.
+   * @param feeRate - Optional fee rate in shannons per 1000 bytes. If not provided, it will be fetched from the client.
+   * @param filter - Optional filter for selecting cells when adding inputs.
+   * @param options - Optional configuration object.
+   * @param options.feeRateBlockRange - Block range for fee rate calculation when feeRate is not provided.
+   * @param options.maxFeeRate - Maximum allowed fee rate.
+   * @param options.shouldAddInputs - Whether to add inputs automatically. Defaults to true.
+   * @returns A promise that resolves to a tuple containing:
+   *          - The number of inputs added during the process
+   *          - A boolean indicating whether change outputs were created (true) or fee was paid without change (false)
+   *
+   * @example
+   * ```typescript
+   * const changeScript = Script.from({
+   *   codeHash: "0x...",
+   *   hashType: "type",
+   *   args: "0x..."
+   * });
+   *
+   * const [addedInputs, hasChange] = await tx.completeFeeChangeToLock(
+   *   signer,
+   *   changeScript,
+   *   1000n // 1000 shannons per 1000 bytes
+   * );
+   * ```
+   */
   completeFeeChangeToLock(
     from: Signer,
     change: ScriptLike,
-    feeRate: NumLike,
+    feeRate?: NumLike,
     filter?: ClientCollectableSearchKeyFilterLike,
+    options?: {
+      feeRateBlockRange?: NumLike;
+      maxFeeRate?: NumLike;
+      shouldAddInputs?: boolean;
+    },
   ): Promise<[number, boolean]> {
     const script = Script.from(change);
 
@@ -1661,24 +2367,91 @@ export class Transaction {
       },
       feeRate,
       filter,
+      options,
     );
   }
 
+  /**
+   * Completes the transaction fee using the signer's recommended address for change.
+   * This is a convenience method that automatically uses the signer's recommended
+   * address as the change destination, making it easier to complete transactions
+   * without manually specifying a change address.
+   *
+   * @param from - The signer to complete inputs from and prepare the transaction.
+   * @param feeRate - Optional fee rate in shannons per 1000 bytes. If not provided, it will be fetched from the client.
+   * @param filter - Optional filter for selecting cells when adding inputs.
+   * @param options - Optional configuration object.
+   * @param options.feeRateBlockRange - Block range for fee rate calculation when feeRate is not provided.
+   * @param options.maxFeeRate - Maximum allowed fee rate.
+   * @param options.shouldAddInputs - Whether to add inputs automatically. Defaults to true.
+   * @returns A promise that resolves to a tuple containing:
+   *          - The number of inputs added during the process
+   *          - A boolean indicating whether change outputs were created (true) or fee was paid without change (false)
+   *
+   * @example
+   * ```typescript
+   * const [addedInputs, hasChange] = await tx.completeFeeBy(
+   *   signer,
+   *   1000n // 1000 shannons per 1000 bytes
+   * );
+   *
+   * // Change will automatically go to signer's recommended address
+   * ```
+   */
   async completeFeeBy(
     from: Signer,
-    feeRate: NumLike,
+    feeRate?: NumLike,
     filter?: ClientCollectableSearchKeyFilterLike,
+    options?: {
+      feeRateBlockRange?: NumLike;
+      maxFeeRate?: NumLike;
+      shouldAddInputs?: boolean;
+    },
   ): Promise<[number, boolean]> {
     const { script } = await from.getRecommendedAddressObj();
 
-    return this.completeFeeChangeToLock(from, script, feeRate, filter);
+    return this.completeFeeChangeToLock(from, script, feeRate, filter, options);
   }
 
+  /**
+   * Completes the transaction fee by adding excess capacity to an existing output.
+   * Instead of creating a new change output, this method adds any excess capacity
+   * to the specified existing output in the transaction.
+   *
+   * @param from - The signer to complete inputs from and prepare the transaction.
+   * @param index - The index of the existing output to add excess capacity to.
+   * @param feeRate - Optional fee rate in shannons per 1000 bytes. If not provided, it will be fetched from the client.
+   * @param filter - Optional filter for selecting cells when adding inputs.
+   * @param options - Optional configuration object.
+   * @param options.feeRateBlockRange - Block range for fee rate calculation when feeRate is not provided.
+   * @param options.maxFeeRate - Maximum allowed fee rate.
+   * @param options.shouldAddInputs - Whether to add inputs automatically. Defaults to true.
+   * @returns A promise that resolves to a tuple containing:
+   *          - The number of inputs added during the process
+   *          - A boolean indicating whether change was applied (true) or fee was paid without change (false)
+   *
+   * @throws {Error} When the specified output index doesn't exist.
+   *
+   * @example
+   * ```typescript
+   * // Add excess capacity to the first output (index 0)
+   * const [addedInputs, hasChange] = await tx.completeFeeChangeToOutput(
+   *   signer,
+   *   0, // Output index
+   *   1000n // 1000 shannons per 1000 bytes
+   * );
+   * ```
+   */
   completeFeeChangeToOutput(
     from: Signer,
     index: NumLike,
-    feeRate: NumLike,
+    feeRate?: NumLike,
     filter?: ClientCollectableSearchKeyFilterLike,
+    options?: {
+      feeRateBlockRange?: NumLike;
+      maxFeeRate?: NumLike;
+      shouldAddInputs?: boolean;
+    },
   ): Promise<[number, boolean]> {
     const change = Number(numFrom(index));
     if (!this.outputs[change]) {
@@ -1692,6 +2465,95 @@ export class Transaction {
       },
       feeRate,
       filter,
+      options,
     );
   }
+}
+
+/**
+ * Calculate Nervos DAO profit between two blocks.
+ * This function computes the profit earned from a Nervos DAO deposit
+ * based on the capacity and the time period between deposit and withdrawal.
+ *
+ * @param profitableCapacity - The capacity that earns profit (total capacity minus occupied capacity).
+ * @param depositHeaderLike - The block header when the DAO deposit was made.
+ * @param withdrawHeaderLike - The block header when the DAO withdrawal is made.
+ * @returns The profit amount in CKB (capacity units).
+ *
+ * @example
+ * ```typescript
+ * const profit = calcDaoProfit(
+ *   ccc.fixedPointFrom(100), // 100 CKB profitable capacity
+ *   depositHeader,
+ *   withdrawHeader
+ * );
+ * console.log(`Profit: ${profit} shannons`);
+ * ```
+ *
+ * @see {@link https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md | Nervos DAO RFC}
+ */
+export function calcDaoProfit(
+  profitableCapacity: NumLike,
+  depositHeaderLike: ClientBlockHeaderLike,
+  withdrawHeaderLike: ClientBlockHeaderLike,
+): Num {
+  const depositHeader = ClientBlockHeader.from(depositHeaderLike);
+  const withdrawHeader = ClientBlockHeader.from(withdrawHeaderLike);
+
+  const profitableSize = numFrom(profitableCapacity);
+
+  return (
+    (profitableSize * withdrawHeader.dao.ar) / depositHeader.dao.ar -
+    profitableSize
+  );
+}
+
+/**
+ * Calculate claimable epoch for Nervos DAO withdrawal.
+ * This function determines the earliest epoch when a Nervos DAO withdrawal
+ * can be claimed based on the deposit and withdrawal epochs.
+ *
+ * @param depositHeader - The block header when the DAO deposit was made.
+ * @param withdrawHeader - The block header when the DAO withdrawal was initiated.
+ * @returns The epoch when the withdrawal can be claimed, represented as [number, index, length].
+ *
+ * @example
+ * ```typescript
+ * const claimEpoch = calcDaoClaimEpoch(depositHeader, withdrawHeader);
+ * console.log(`Can claim at epoch: ${claimEpoch[0]}, index: ${claimEpoch[1]}, length: ${claimEpoch[2]}`);
+ * ```
+ *
+ * @remarks
+ * The Nervos DAO has a minimum lock period of 180 epochs (~30 days).
+ * This function calculates the exact epoch when the withdrawal becomes claimable
+ * based on the deposit epoch and withdrawal epoch timing.
+ *
+ * @see {@link https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0023-dao-deposit-withdraw/0023-dao-deposit-withdraw.md | Nervos DAO RFC}
+ */
+export function calcDaoClaimEpoch(
+  depositHeader: ClientBlockHeaderLike,
+  withdrawHeader: ClientBlockHeaderLike,
+): Epoch {
+  const depositEpoch = ClientBlockHeader.from(depositHeader).epoch;
+  const withdrawEpoch = ClientBlockHeader.from(withdrawHeader).epoch;
+  const intDiff = withdrawEpoch[0] - depositEpoch[0];
+  // deposit[1]    withdraw[1]
+  // ---------- <= -----------
+  // deposit[2]    withdraw[2]
+  if (
+    intDiff % numFrom(180) !== numFrom(0) ||
+    depositEpoch[1] * withdrawEpoch[2] <= depositEpoch[2] * withdrawEpoch[1]
+  ) {
+    return [
+      depositEpoch[0] + (intDiff / numFrom(180) + numFrom(1)) * numFrom(180),
+      depositEpoch[1],
+      depositEpoch[2],
+    ];
+  }
+
+  return [
+    depositEpoch[0] + (intDiff / numFrom(180)) * numFrom(180),
+    depositEpoch[1],
+    depositEpoch[2],
+  ];
 }

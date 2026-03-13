@@ -8,6 +8,9 @@ import { Hex, hexFrom } from "../../hex/index.js";
 import { Signer, SignerSignType, SignerType } from "../signer/index.js";
 import { buildNostrEventFromMessage } from "./verify.js";
 
+/**
+ * @public
+ */
 export interface NostrEvent {
   id?: string;
   pubkey?: string;
@@ -18,6 +21,9 @@ export interface NostrEvent {
   content: string;
 }
 
+/**
+ * @public
+ */
 export abstract class SignerNostr extends Signer {
   static CKB_SIG_HASH_ALL_TAG = "ckb_sighash_all";
   static CKB_UNLOCK_EVENT_KIND = 23334;
@@ -44,7 +50,9 @@ export abstract class SignerNostr extends Signer {
    *
    * @returns A promise that resolves to the signed event.
    */
-  abstract signNostrEvent(event: NostrEvent): Promise<Required<NostrEvent>>;
+  async signNostrEvent(_event: NostrEvent): Promise<Required<NostrEvent>> {
+    throw Error("SignerNostr.signNostrEvent not implemented");
+  }
 
   /**
    * Sign a message.
@@ -106,7 +114,7 @@ export abstract class SignerNostr extends Signer {
    * @returns A promise that resolves to a signed Transaction object.
    */
   async signOnlyTransaction(txLike: TransactionLike): Promise<Transaction> {
-    let tx = Transaction.from(txLike);
+    const tx = Transaction.from(txLike);
     const { script } = await this.getRecommendedAddressObj();
     const info = await tx.getSignHashInfo(script, this.client);
     if (!info) {

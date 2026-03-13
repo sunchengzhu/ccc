@@ -1,22 +1,21 @@
 import { ccc } from "@ckb-ccc/core";
-import { ProviderDetail as EIP6963ProviderDetail } from "./eip6963.advanced.js";
+import { Provider } from "./eip1193.advanced.js";
 
 /**
- * Class representing an EVM signer that extends SignerEvm from @ckb-ccc/core.
- * @class
- * @extends {ccc.SignerEvm}
+ * Class representing an EVM signer that extends SignerEvm
+ * @public
  */
 export class Signer extends ccc.SignerEvm {
   private accountCache?: ccc.Hex = undefined;
 
   /**
    * Creates an instance of Signer.
-   * @param {ccc.Client} client - The client instance.
-   * @param {EIP6963ProviderDetail} detail - The provider detail.
+   * @param client - The client instance.
+   * @param provider - The provider.
    */
   constructor(
     client: ccc.Client,
-    public readonly detail: EIP6963ProviderDetail,
+    public readonly provider: Provider,
   ) {
     super(client);
   }
@@ -27,17 +26,17 @@ export class Signer extends ccc.SignerEvm {
    */
   async getEvmAccount(): Promise<ccc.Hex> {
     this.accountCache = (
-      await this.detail.provider.request({ method: "eth_accounts" })
+      await this.provider.request({ method: "eth_accounts" })
     )[0];
     return this.accountCache;
   }
 
   /**
    * Connects to the provider by requesting accounts.
-   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   * @returns A promise that resolves when the connection is established.
    */
   async connect(): Promise<void> {
-    await this.detail.provider.request({ method: "eth_requestAccounts" });
+    await this.provider.request({ method: "eth_requestAccounts" });
   }
 
   onReplaced(listener: () => void): () => void {
@@ -47,31 +46,30 @@ export class Signer extends ccc.SignerEvm {
       stop[0]?.();
     };
     stop.push(() => {
-      this.detail.provider.removeListener("accountsChanged", replacer);
-      this.detail.provider.removeListener("disconnect", replacer);
+      this.provider.removeListener("accountsChanged", replacer);
+      this.provider.removeListener("disconnect", replacer);
     });
 
-    this.detail.provider.on("accountsChanged", replacer);
-    this.detail.provider.on("disconnect", replacer);
+    this.provider.on("accountsChanged", replacer);
+    this.provider.on("disconnect", replacer);
 
     return stop[0];
   }
 
   /**
    * Checks if the provider is connected.
-   * @returns {Promise<boolean>} A promise that resolves to true if connected, false otherwise.
+   * @returns A promise that resolves to true if connected, false otherwise.
    */
   async isConnected(): Promise<boolean> {
     return (
-      (await this.detail.provider.request({ method: "eth_accounts" }))
-        .length !== 0
+      (await this.provider.request({ method: "eth_accounts" })).length !== 0
     );
   }
 
   /**
    * Signs a raw message with the personal account.
-   * @param {string | ccc.BytesLike} message - The message to sign.
-   * @returns {Promise<ccc.Hex>} A promise that resolves to the signed message.
+   * @param message - The message to sign.
+   * @returns A promise that resolves to the signed message.
    */
   async signMessageRaw(message: string | ccc.BytesLike): Promise<ccc.Hex> {
     const challenge =
@@ -79,7 +77,7 @@ export class Signer extends ccc.SignerEvm {
 
     const account = this.accountCache ?? (await this.getEvmAccount());
 
-    return this.detail.provider.request({
+    return this.provider.request({
       method: "personal_sign",
       params: [ccc.hexFrom(challenge), account],
     });

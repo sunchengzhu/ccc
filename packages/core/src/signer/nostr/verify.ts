@@ -1,29 +1,33 @@
 import { schnorr } from "@noble/curves/secp256k1";
-import { sha256 } from "@noble/hashes/sha256";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { bech32 } from "bech32";
-import { BytesLike, bytesFrom } from "../../bytes/index.js";
+import { Bytes, BytesLike, bytesFrom } from "../../bytes/index.js";
 import { hexFrom } from "../../hex/index.js";
 import { NostrEvent } from "./signerNostr.js";
 
+/**
+ * @public
+ */
 export function buildNostrEventFromMessage(
   message: string | BytesLike,
 ): NostrEvent {
   if (typeof message === "string") {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       const event = JSON.parse(message);
       if (
         typeof event === "object" &&
         typeof event.created_at === "number" &&
         typeof event.kind === "number" &&
         typeof event.content === "string" &&
-        Array.isArray(event.args) &&
-        (event.args as unknown[]).every(
+        Array.isArray(event.tags) &&
+        (event.tags as unknown[]).every(
           (tag) =>
             Array.isArray(tag) &&
             (tag as unknown[]).every((v) => typeof v === "string"),
         )
       ) {
-        return event;
+        return event as NostrEvent;
       }
     } catch (_) {}
   }
@@ -36,27 +40,32 @@ export function buildNostrEventFromMessage(
   };
 }
 
+export function nostrEventHash(event: NostrEvent): Bytes {
+  const serialized = JSON.stringify([
+    0,
+    event.pubkey,
+    event.created_at,
+    event.kind,
+    event.tags,
+    event.content,
+  ]);
+
+  return sha256(bytesFrom(serialized, "utf8"));
+}
+
 export function verifyMessageNostrEvent(
   message: string | BytesLike,
   signature: string,
   address: string,
 ): boolean {
   const { words } = bech32.decode(address);
-  const publicKey = hexFrom(bech32.fromWords(words)).slice(2);
+  const pubkey = hexFrom(bech32.fromWords(words)).slice(2);
 
   const event = buildNostrEventFromMessage(message);
-  const serialized = JSON.stringify([
-    0,
-    publicKey,
-    event.created_at,
-    event.kind,
-    event.tags,
-    event.content,
-  ]);
-  const eventHash = hexFrom(sha256(bytesFrom(serialized, "utf8")));
+  const eventHash = nostrEventHash({ ...event, pubkey });
 
   try {
-    return schnorr.verify(signature.slice(2), eventHash.slice(2), publicKey);
+    return schnorr.verify(hexFrom(signature).slice(2), eventHash, pubkey);
   } catch (_) {
     return false;
   }

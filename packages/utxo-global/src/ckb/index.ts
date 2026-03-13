@@ -1,6 +1,9 @@
 import { ccc } from "@ckb-ccc/core";
 import { Provider } from "../advancedBarrel.js";
 
+/**
+ * @public
+ */
 export class SignerCkb extends ccc.Signer {
   private accountCache: string | undefined;
   get type(): ccc.SignerType {
@@ -9,7 +12,7 @@ export class SignerCkb extends ccc.Signer {
 
   /**
    * Gets the sign type.
-   * @returns {ccc.SignerSignType} The sign type.
+   * @returns The sign type.
    */
   get signType(): ccc.SignerSignType {
     return ccc.SignerSignType.CkbSecp256k1;
@@ -57,11 +60,42 @@ export class SignerCkb extends ccc.Signer {
     return ccc.hexFrom(pubKey.publicKey);
   }
 
+  get ckbNetwork(): string {
+    return this.client.addressPrefix === "ckb" ? "nervos" : "nervos_testnet";
+  }
+
   async connect(): Promise<void> {
     await this.provider.connect();
+
+    if (this.ckbNetwork === (await this.provider.getNetwork())) {
+      return;
+    }
+
+    await this.provider.switchNetwork(this.ckbNetwork);
+  }
+
+  onReplaced(listener: () => void): () => void {
+    const stop: (() => void)[] = [];
+    const replacer = async () => {
+      listener();
+      stop[0]?.();
+    };
+    stop.push(() => {
+      this.provider.removeListener("accountsChanged", replacer);
+      this.provider.removeListener("networkChanged", replacer);
+    });
+
+    this.provider.on("accountsChanged", replacer);
+    this.provider.on("networkChanged", replacer);
+
+    return stop[0];
   }
 
   async isConnected(): Promise<boolean> {
+    if ((await this.provider.getNetwork()) !== this.ckbNetwork) {
+      return false;
+    }
+
     return await this.provider.isConnected();
   }
 

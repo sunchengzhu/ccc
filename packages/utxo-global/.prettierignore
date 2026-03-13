@@ -1,13 +1,15 @@
 node_modules/
 
 dist/
-dist.commoonjs/
+dist.commonjs/
 
 .npmignore
 .prettierrc
 tsconfig.json
 eslint.config.mjs
-.prettierrc
+prettier.config.*
 
 tsconfig.tsbuildinfo
 .github/
+
+CHANGELOG.md

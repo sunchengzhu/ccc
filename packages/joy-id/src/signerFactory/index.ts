@@ -9,16 +9,18 @@ import { NostrSigner } from "../nostr/index.js";
  * Gets the JoyID signers based on the client, name, and icon.
  * If the browser is standalone or a webview, returns SignerAlwaysError instances.
  * Otherwise, returns instances of CkbSigner, BitcoinSigner, and EvmSigner.
- * @param {ccc.Client} client - The client instance.
- * @param {string} name - The name of the signer.
- * @param {string} icon - The icon URL of the signer.
- * @returns {ccc.SignerInfo[]} An array of signer information objects.
+ * @public
+ *
+ * @param client - The client instance.
+ * @param name - The name of the signer.
+ * @param icon - The icon URL of the signer.
+ * @returns An array of signer information objects.
  */
 export function getJoyIdSigners(
   client: ccc.Client,
   name: string,
   icon: string,
-  preferredNetworks: ccc.NetworkPreference[],
+  preferredNetworks?: ccc.NetworkPreference[],
 ): ccc.SignerInfo[] {
   if (isStandaloneBrowser() || ccc.isWebview(window.navigator.userAgent)) {
     return [ccc.SignerType.CKB, ccc.SignerType.EVM, ccc.SignerType.BTC].map(

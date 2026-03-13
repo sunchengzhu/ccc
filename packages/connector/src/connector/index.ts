@@ -2,11 +2,17 @@ import { ccc } from "@ckb-ccc/ccc";
 import { LitElement, PropertyValues, css, html } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { Ref, createRef, ref } from "lit/directives/ref.js";
-import { ConnectedEvent } from "../scenes/selecting";
-import { SignersController } from "../signers";
+import {
+  CloseEvent,
+  ConnectedEvent,
+  SelectClientEvent,
+} from "../events/index.js";
+import { SignersController } from "../signers/index.js";
 
 @customElement("ccc-connector")
 export class WebComponentConnector extends LitElement {
+  @property()
+  public hideMark: unknown;
   @property()
   public name?: string;
   @property()
@@ -14,10 +20,9 @@ export class WebComponentConnector extends LitElement {
   @property()
   public preferredNetworks?: ccc.NetworkPreference[];
   @property()
-  public signerFilter?: (
-    signerInfo: ccc.SignerInfo,
-    wallet: ccc.Wallet,
-  ) => Promise<boolean>;
+  public signersController?: ccc.SignersController;
+  @state()
+  public clientOptions?: { icon?: string; client: ccc.Client; name: string }[];
 
   @state()
   public client: ccc.Client = new ccc.ClientPublicTestnet();
@@ -25,7 +30,7 @@ export class WebComponentConnector extends LitElement {
     this.client = client;
   }
 
-  private signersController = new SignersController(this);
+  private signersControllerInner = new SignersController(this);
 
   @state()
   private walletName?: string;
@@ -39,20 +44,18 @@ export class WebComponentConnector extends LitElement {
   private unregisterSignerReplacer?: () => void;
 
   public disconnect() {
-    this.walletName = undefined;
-    this.signerName = undefined;
-    this.saveConnection();
-    this.dispatchEvent(new Event("close", { bubbles: true, composed: true }));
-    this.signer?.signer.disconnect();
+    this.onClose(() => {
+      this.walletName = undefined;
+      this.signerName = undefined;
+      this.saveConnection();
+      void this.signer?.signer.disconnect();
+    });
   }
 
   private loadConnection() {
-    const {
-      signerName,
-      walletName,
-    }: { signerName?: string; walletName?: string } = JSON.parse(
+    const { signerName, walletName } = JSON.parse(
       window.localStorage.getItem("ccc-connection-info") ?? "{}",
-    );
+    ) as { signerName?: string; walletName?: string };
 
     this.signerName = signerName;
     this.walletName = walletName;
@@ -81,7 +84,7 @@ export class WebComponentConnector extends LitElement {
       changedProperties.has("signerFilter") ||
       changedProperties.has("preferredNetworks")
     ) {
-      this.signersController.refresh();
+      void this.signersControllerInner.refresh();
     }
     if (
       changedProperties.has("walletName") ||
@@ -93,12 +96,12 @@ export class WebComponentConnector extends LitElement {
     this.dispatchEvent(new Event("willUpdate"));
   }
 
-  async refreshSigner() {
-    const wallet = this.signersController.wallets.find(
+  refreshSigner() {
+    const wallet = this.signersControllerInner.wallets.find(
       ({ name }) => name === this.walletName,
     );
     const signer = wallet?.signers.find(({ name }) => name === this.signerName);
-    this.updateSigner(wallet, signer);
+    void this.updateSigner(wallet, signer);
   }
 
   async updateSigner(
@@ -117,7 +120,7 @@ export class WebComponentConnector extends LitElement {
       this.signer = signerInfo;
       (this.unregisterSignerReplacer as unknown as () => void)?.();
       this.unregisterSignerReplacer = signerInfo.signer.onReplaced(() => {
-        this.signersController.refresh();
+        void this.signersControllerInner.refresh();
       });
     } else {
       this.wallet = undefined;
@@ -134,11 +137,12 @@ export class WebComponentConnector extends LitElement {
       class="background"
       @click=${(event: Event) => {
         if (event.target === event.currentTarget) {
-          this.dispatchEvent(
-            new Event("close", { bubbles: true, composed: true }),
-          );
-          this.bodyRef.value?.onClose?.();
+          this.onClose();
         }
+      }}
+      @close=${(event: CloseEvent) => {
+        event.stopPropagation();
+        this.onClose(event.callback);
       }}
       @updated=${() => this.updated()}
     >
@@ -146,15 +150,19 @@ export class WebComponentConnector extends LitElement {
         ${this.wallet && this.signer
           ? html`
               <ccc-connected-scene
+                ?hideMark=${this.hideMark}
                 .wallet=${this.wallet}
                 .signer=${this.signer.signer}
+                .clientOptions=${this.clientOptions}
                 @disconnect=${() => this.disconnect()}
+                @select-client=${(e: SelectClientEvent) =>
+                  this.setClient(e.client)}
                 ${ref(this.bodyRef)}
               ></ccc-connected-scene>
             `
           : html`
               <ccc-selecting-scene
-                .wallets=${this.signersController.wallets}
+                .wallets=${this.signersControllerInner.wallets}
                 @connected=${({ walletName, signerName }: ConnectedEvent) => {
                   this.walletName = walletName;
                   this.signerName = signerName;
@@ -166,6 +174,18 @@ export class WebComponentConnector extends LitElement {
             `}
       </div>
     </div>`;
+  }
+
+  onClose(onClosed?: () => void) {
+    if (this.mainRef.value) {
+      this.mainRef.value.style.height = "0";
+    }
+
+    setTimeout(() => {
+      this.dispatchEvent(new CloseEvent());
+      this.bodyRef.value?.onClose?.();
+      onClosed?.();
+    }, 150);
   }
 
   updated() {

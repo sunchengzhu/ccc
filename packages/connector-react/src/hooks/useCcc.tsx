@@ -1,16 +1,23 @@
-import { WebComponentConnector, ccc } from "@ckb-ccc/connector";
+import { ccc } from "@ckb-ccc/connector";
 import React, {
+  CSSProperties,
+  HTMLAttributes,
+  ReactNode,
   createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import { Connector } from "../components";
+import { Connector } from "../components/index.js";
 
 const CCC_CONTEXT = createContext<
   | {
+      isOpen: boolean;
       open: () => unknown;
+      close: () => unknown;
       disconnect: () => unknown;
       setClient: (client: ccc.Client) => unknown;
       client: ccc.Client;
@@ -20,29 +27,65 @@ const CCC_CONTEXT = createContext<
   | undefined
 >(undefined);
 
+class SignersControllerWithFilter extends ccc.SignersController {
+  constructor(
+    public filter?: (
+      signerInfo: ccc.SignerInfo,
+      wallet: ccc.Wallet,
+    ) => Promise<boolean>,
+  ) {
+    super();
+  }
+
+  async addSigner(
+    walletName: string,
+    icon: string,
+    signerInfo: ccc.SignerInfo,
+    context: ccc.SignersControllerRefreshContext,
+  ) {
+    if (
+      this.filter &&
+      !(await this.filter(signerInfo, { name: walletName, icon }))
+    ) {
+      return;
+    }
+
+    return super.addSigner(walletName, icon, signerInfo, context);
+  }
+}
+
 export function Provider({
   children,
   connectorProps,
+  hideMark,
   name,
   icon,
   signerFilter,
+  signersController,
   defaultClient,
+  clientOptions,
   preferredNetworks,
 }: {
-  children: React.ReactNode;
-  connectorProps?: React.HTMLAttributes<{}>;
+  children: ReactNode;
+  connectorProps?: HTMLAttributes<{}>;
+  hideMark?: boolean;
   name?: string;
   icon?: string;
   signerFilter?: (
     signerInfo: ccc.SignerInfo,
     wallet: ccc.Wallet,
   ) => Promise<boolean>;
+  signersController?: ccc.SignersController;
   defaultClient?: ccc.Client;
+  clientOptions?: { icon?: string; client: ccc.Client; name: string }[];
   preferredNetworks?: ccc.NetworkPreference[];
 }) {
-  const [ref, setRef] = useState<WebComponentConnector | null>(null);
+  const [ref, setRef] = useState<ccc.WebComponentConnector | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [_, setFlag] = useState(0);
+  const defaultSignersController = useRef<
+    SignersControllerWithFilter | undefined
+  >(undefined);
 
   const client = useMemo(
     () => ref?.client ?? new ccc.ClientPublicTestnet(),
@@ -50,6 +93,10 @@ export function Provider({
   );
   const open = useCallback(() => {
     setIsOpen(true);
+    ref?.requestUpdate();
+  }, [setIsOpen, ref, ref?.requestUpdate]);
+  const close = useCallback(() => {
+    setIsOpen(false);
     ref?.requestUpdate();
   }, [setIsOpen, ref, ref?.requestUpdate]);
   const disconnect = useMemo(
@@ -66,11 +113,22 @@ export function Provider({
       setClient(defaultClient);
     }
   }, [setClient]);
+  useEffect(() => {
+    if (!defaultSignersController.current) {
+      defaultSignersController.current = new SignersControllerWithFilter(
+        signerFilter,
+      );
+    } else {
+      defaultSignersController.current.filter = signerFilter;
+    }
+  }, [signerFilter]);
 
   return (
     <CCC_CONTEXT.Provider
       value={{
+        isOpen,
         open,
+        close,
         disconnect,
         setClient,
 
@@ -80,18 +138,21 @@ export function Provider({
       }}
     >
       <Connector
+        hideMark={hideMark}
         name={name}
         icon={icon}
-        signerFilter={signerFilter}
+        signersController={
+          signersController ?? defaultSignersController.current
+        }
         ref={setRef}
         onWillUpdate={() => setFlag((f) => f + 1)}
-        onClose={() => setIsOpen(false)}
+        onClose={close}
         preferredNetworks={preferredNetworks}
+        clientOptions={clientOptions}
         {...{
           ...connectorProps,
           style: {
-            ...connectorProps?.style,
-            zIndex: connectorProps?.style?.zIndex ?? 999,
+            zIndex: 999,
             ...(isOpen ? {} : { display: "none" }),
             ...({
               "--background": "#fff",
@@ -100,9 +161,12 @@ export function Provider({
               "--btn-primary-hover": "#efeeee",
               "--btn-secondary": "#ddd",
               "--btn-secondary-hover": "#ccc",
+              "--icon-primary": "#1E1E1E",
+              "--icon-secondary": "#666666",
               color: "#1e1e1e",
               "--tip-color": "#666",
-            } as React.CSSProperties),
+            } as CSSProperties),
+            ...connectorProps?.style,
           },
         }}
       />
@@ -112,7 +176,7 @@ export function Provider({
 }
 
 export function useCcc() {
-  const context = React.useContext(CCC_CONTEXT);
+  const context = useContext(CCC_CONTEXT);
   if (!context) {
     throw Error(
       "The component which invokes the useCcc hook should be placed in a ccc.Provider.",

@@ -9,14 +9,13 @@ import {
 } from "../connectionsStorage/index.js";
 
 /**
- * Class representing a CKB signer that extends Signer from @ckb-ccc/core.
- * @class
- * @extends {ccc.Signer}
+ * Class representing a CKB signer that extends Signer
+ * @public
  */
 export class CkbSigner extends ccc.Signer {
   /**
    * Gets the signer type.
-   * @returns {ccc.SignerType} The type of the signer.
+   * @returns The type of the signer.
    */
   get type(): ccc.SignerType {
     return ccc.SignerType.CKB;
@@ -24,7 +23,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the sign type.
-   * @returns {ccc.SignerSignType} The sign type.
+   * @returns The sign type.
    */
   get signType(): ccc.SignerSignType {
     return ccc.SignerSignType.JoyId;
@@ -34,9 +33,8 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Ensures that the signer is connected and returns the connection.
-   * @private
    * @throws Will throw an error if not connected.
-   * @returns {Promise<Connection>} A promise that resolves to the current connection.
+   * @returns A promise that resolves to the current connection.
    */
   private async assertConnection(): Promise<Connection> {
     if (!(await this.isConnected()) || !this.connection) {
@@ -48,12 +46,12 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Creates an instance of CkbSigner.
-   * @param {ccc.Client} client - The client instance.
-   * @param {string} name - The name of the signer.
-   * @param {string} icon - The icon URL of the signer.
-   * @param {string} [_appUri] - The application URI.
-   * @param {string} [_aggregatorUri] - The aggregator URI.
-   * @param {ConnectionsRepo} [connectionsRepo=new ConnectionsRepoLocalStorage()] - The connections repository.
+   * @param client - The client instance.
+   * @param name - The name of the signer.
+   * @param icon - The icon URL of the signer.
+   * @param _appUri - The application URI.
+   * @param _aggregatorUri - The aggregator URI.
+   * @param connectionsRepo - The connections repository.
    */
   constructor(
     client: ccc.Client,
@@ -68,16 +66,16 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the configuration for JoyID.
-   * @private
    * @returns The configuration object.
    */
   private getConfig() {
     return {
       redirectURL: location.href,
       joyidAppURL:
-        this._appUri ?? this.client.addressPrefix === "ckb"
+        this._appUri ??
+        (this.client.addressPrefix === "ckb"
           ? "https://app.joy.id"
-          : "https://testnet.joyid.dev",
+          : "https://testnet.joyid.dev"),
       name: this.name,
       logo: this.icon,
     };
@@ -85,22 +83,20 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the aggregator URI.
-   * @private
-   * @returns {string} The aggregator URI.
+   * @returns The aggregator URI.
    */
   private getAggregatorUri(): string {
-    if (this._aggregatorUri) {
-      return this._aggregatorUri;
-    }
-
-    return this.client.addressPrefix === "ckb"
-      ? "https://cota.nervina.dev/mainnet-aggregator"
-      : "https://cota.nervina.dev/aggregator";
+    return (
+      this._aggregatorUri ??
+      (this.client.addressPrefix === "ckb"
+        ? "https://cota.nervina.dev/mainnet-aggregator"
+        : "https://cota.nervina.dev/aggregator")
+    );
   }
 
   /**
    * Connects to the provider by requesting authentication.
-   * @returns {Promise<void>} A promise that resolves when the connection is established.
+   * @returns A promise that resolves when the connection is established.
    */
   async connect(): Promise<void> {
     const config = this.getConfig();
@@ -127,7 +123,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Checks if the signer is connected.
-   * @returns {Promise<boolean>} A promise that resolves to true if connected, false otherwise.
+   * @returns A promise that resolves to true if connected, false otherwise.
    */
   async isConnected(): Promise<boolean> {
     if (this.connection) {
@@ -139,7 +135,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the internal address.
-   * @returns {Promise<string>} A promise that resolves to the internal address.
+   * @returns A promise that resolves to the internal address.
    */
   async getInternalAddress(): Promise<string> {
     return (await this.assertConnection()).address;
@@ -147,11 +143,12 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the identity of the signer.
-   * @returns {Promise<string>} A promise that resolves to the identity.
+   * @returns A promise that resolves to the identity.
    */
   async getIdentity(): Promise<string> {
     const connection = await this.assertConnection();
     return JSON.stringify({
+      address: connection.address,
       keyType: connection.keyType,
       publicKey: connection.publicKey.slice(2),
     });
@@ -159,7 +156,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the address object.
-   * @returns {Promise<ccc.Address>} A promise that resolves to the address object.
+   * @returns A promise that resolves to the address object.
    */
   async getAddressObj(): Promise<ccc.Address> {
     return await ccc.Address.fromString(
@@ -170,7 +167,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Gets the address objects.
-   * @returns {Promise<ccc.Address[]>} A promise that resolves to an array of address objects.
+   * @returns A promise that resolves to an array of address objects.
    */
   async getAddressObjs(): Promise<ccc.Address[]> {
     return [await this.getAddressObj()];
@@ -178,8 +175,8 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Prepares a transaction.
-   * @param {ccc.TransactionLike} txLike - The transaction-like object.
-   * @returns {Promise<ccc.Transaction>} A promise that resolves to the prepared transaction.
+   * @param txLike - The transaction-like object.
+   * @returns A promise that resolves to the prepared transaction.
    */
   async prepareTransaction(
     txLike: ccc.TransactionLike,
@@ -204,7 +201,6 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Prepares a transaction for a sub key.
-   * @private
    * @param tx - The transaction object.
    * @param witness - The witness arguments.
    * @throws Will throw an error if no COTA cells are found for the sub key wallet.
@@ -213,8 +209,11 @@ export class CkbSigner extends ccc.Signer {
     tx: ccc.Transaction,
     witness: ccc.WitnessArgs,
   ) {
-    if (this.connection?.keyType !== "sub_key") {
-      return [];
+    if (
+      this.connection?.keyType !== "sub_key" ||
+      (witness.outputType ?? "0x") !== "0x"
+    ) {
+      return;
     }
 
     const pubkeyHash = ccc.hashCkb(this.connection.publicKey).substring(0, 42);
@@ -245,13 +244,13 @@ export class CkbSigner extends ccc.Signer {
       throw new Error("No COTA cells for sub key wallet");
     }
 
-    tx.cellDeps.unshift(...cotaDeps);
+    tx.addCellDepsAtStart(cotaDeps);
   }
 
   /**
    * Signs a transaction.
-   * @param {ccc.TransactionLike} txLike - The transaction-like object.
-   * @returns {Promise<ccc.Transaction>} A promise that resolves to the signed transaction.
+   * @param txLike - The transaction-like object.
+   * @returns A promise that resolves to the signed transaction.
    */
   async signOnlyTransaction(
     txLike: ccc.TransactionLike,
@@ -261,12 +260,9 @@ export class CkbSigner extends ccc.Signer {
     const witnessIndexes = await ccc.reduceAsync(
       tx.inputs,
       async (acc, input, i) => {
-        await input.completeExtraInfos(this.client);
-        if (!input.cellOutput) {
-          throw new Error("Unable to complete input");
-        }
+        const { cellOutput } = await input.getCell(this.client);
 
-        if (input.cellOutput.lock.eq(script)) {
+        if (cellOutput.lock.eq(script)) {
           acc.push(i);
         }
       },
@@ -285,6 +281,7 @@ export class CkbSigner extends ccc.Signer {
       buildJoyIDURL(
         {
           ...config,
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
           tx: JSON.parse(tx.stringify()),
           signerAddress: (await this.assertConnection()).address,
           witnessIndexes,
@@ -303,8 +300,8 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Signs a raw message with the account.
-   * @param {string | ccc.BytesLike} message - The message to sign.
-   * @returns {Promise<string>} A promise that resolves to the signed message.
+   * @param message - The message to sign.
+   * @returns A promise that resolves to the signed message.
    */
   async signMessageRaw(message: string | ccc.BytesLike): Promise<string> {
     const { address } = await this.assertConnection();
@@ -335,8 +332,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Saves the current connection.
-   * @private
-   * @returns {Promise<void>}
+   * @returns
    */
   private async saveConnection(): Promise<void> {
     return this.connectionsRepo.set(
@@ -350,8 +346,7 @@ export class CkbSigner extends ccc.Signer {
 
   /**
    * Restores the previous connection.
-   * @private
-   * @returns {Promise<void>}
+   * @returns
    */
   private async restoreConnection(): Promise<void> {
     this.connection = await this.connectionsRepo.get({

@@ -7,6 +7,9 @@ import { numBeToBytes } from "../../num/index.js";
 import { SignerCkbPublicKey } from "./signerCkbPublicKey.js";
 import { messageHashCkbSecp256k1 } from "./verifyCkbSecp256k1.js";
 
+/**
+ * @public
+ */
 export class SignerCkbPrivateKey extends SignerCkbPublicKey {
   public readonly privateKey: Hex;
 
@@ -42,17 +45,21 @@ export class SignerCkbPrivateKey extends SignerCkbPublicKey {
 
   async signOnlyTransaction(txLike: TransactionLike): Promise<Transaction> {
     const tx = Transaction.from(txLike);
-    const { script } = await this.getRecommendedAddressObj();
-    const info = await tx.getSignHashInfo(script, this.client);
-    if (!info) {
-      return tx;
+
+    for (const { script } of await this.getRelatedScripts(tx)) {
+      const info = await tx.getSignHashInfo(script, this.client);
+      if (!info) {
+        return tx;
+      }
+
+      const signature = await this._signMessage(info.message);
+
+      const witness =
+        tx.getWitnessArgsAt(info.position) ?? WitnessArgs.from({});
+      witness.lock = signature;
+      tx.setWitnessArgsAt(info.position, witness);
     }
 
-    const signature = await this._signMessage(info.message);
-
-    const witness = tx.getWitnessArgsAt(info.position) ?? WitnessArgs.from({});
-    witness.lock = signature;
-    tx.setWitnessArgsAt(info.position, witness);
     return tx;
   }
 }
