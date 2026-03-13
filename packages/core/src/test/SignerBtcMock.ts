@@ -1,10 +1,9 @@
-import { SignerBtc } from "../signer";
-import { hexFrom, HexLike } from "../hex";
-import { Client } from "../client";
-import { Transaction, TransactionLike, WitnessArgs } from "../ckb";
 import { bytesConcat, bytesFrom } from "../bytes";
+import { Transaction, TransactionLike, WitnessArgs } from "../ckb";
+import { Client } from "../client";
+import { hexFrom, HexLike } from "../hex";
 import { numToBytes } from "../num";
-
+import { SignerBtc } from "../signer";
 
 export class SignerBtcMock extends SignerBtc {
   constructor(client: Client) {
@@ -16,7 +15,6 @@ export class SignerBtcMock extends SignerBtc {
     return "0255355ca83c973f1d97ce0e3843c85d78905af16b4dc531bc488e57212d230116";
   }
 
-
   async getBtcAccount(): Promise<string> {
     // 返回当前的 Bitcoin 账户地址
     return "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj";
@@ -24,23 +22,23 @@ export class SignerBtcMock extends SignerBtc {
 
   async getMessageRaw(txLike: TransactionLike): Promise<string> {
     const tx = Transaction.from(txLike);
-    const {script} = await this.getRecommendedAddressObj();
+    const { script } = await this.getRecommendedAddressObj();
     const info = await tx.getSignHashInfo(script, this.client);
-    return `CKB (Bitcoin Layer) transaction: ${info?.message}`
+    return `CKB (Bitcoin Layer) transaction: ${info?.message}`;
   }
 
-  async fillWitness(txLike: TransactionLike, signatureStr: string): Promise<Transaction> {
+  async fillWitness(
+    txLike: TransactionLike,
+    signatureStr: string,
+  ): Promise<Transaction> {
     const tx = Transaction.from(txLike);
-    const {script} = await this.getRecommendedAddressObj();
+    const { script } = await this.getRecommendedAddressObj();
     const info = await tx.getSignHashInfo(script, this.client);
     if (!info) {
       return tx;
     }
 
-    const signature = bytesFrom(
-      signatureStr,
-      "base64",
-    );
+    const signature = bytesFrom(signatureStr, "base64");
     signature[0] = 31 + ((signature[0] - 27) % 4);
 
     const witness = WitnessArgs.fromBytes(tx.witnesses[info.position]);
