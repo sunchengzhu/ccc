@@ -221,7 +221,7 @@ function Addresses() {
 export function LayoutProvider({ children }: { children: ReactNode }) {
   return (
     <ccc.Provider /*
-      defaultClient={new ccc.ClientPublicTestnet()} // Default client used by connector
+      defaultClient={new ccc.ClientPublicMainnet()} // Default client used by connector
       connectorProps={{
         style: {
           "--background": "#fff",
@@ -244,7 +244,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
         // Overrides signerFilter
       preferredNetworks={[
         {
-          addressPrefix: "ckt",
+          addressPrefix: "ckb",
           signerType: ccc.SignerType.BTC,
           network: "btc",
         },
